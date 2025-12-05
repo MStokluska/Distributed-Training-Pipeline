@@ -191,6 +191,20 @@ def distributed_training_pipeline(
     training_task.after(dataset_download_task)
     kfp.kubernetes.set_image_pull_policy(training_task, "IfNotPresent")
 
+    # Inject Kubernetes credentials for TrainJob creation (from secret)
+    # The training component reads these environment variables to connect to the K8s API.
+    # Create the secret with: kubectl create secret generic kubernetes-credentials \
+    #   --from-literal=server_url=https://your-k8s-api:6443 \
+    #   --from-literal=auth_token=your-token
+    kfp.kubernetes.use_secret_as_env(
+        task=training_task,
+        secret_name="kubernetes-credentials",
+        secret_key_to_env={
+            "server_url": "KUBERNETES_SERVER_URL",
+            "auth_token": "KUBERNETES_AUTH_TOKEN",
+        },
+    )
+
     # =========================================================================
     # Stage 3: Evaluation with lm-eval
     # =========================================================================

@@ -206,7 +206,8 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kubernetes'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
           $0\" \"$@\"\n"
         - sh
@@ -223,14 +224,49 @@ deploymentSpec:
           \ *\n\ndef training(\n    pvc_mount_path: str,\n    shared_log_file: str\
           \ = \"pipeline_log.txt\",\n) -> str:\n    \"\"\"Perform model training.\n\
           \n    This skeleton component writes a hello world message to a shared file\
-          \ on the PVC.\n\n    Args:\n        pvc_mount_path: Path where the shared\
-          \ PVC is mounted.\n        shared_log_file: Name of the shared log file.\n\
-          \n    Returns:\n        Status message.\n    \"\"\"\n    import os\n\n \
-          \   message = \"Hello world from training\"\n    print(message)\n\n    #\
-          \ Write to shared file on PVC\n    log_path = os.path.join(pvc_mount_path,\
-          \ shared_log_file)\n    with open(log_path, \"a\") as f:\n        f.write(message\
-          \ + \"\\n\")\n\n    print(f\"Message written to {log_path}\")\n    return\
-          \ \"training completed\"\n\n"
+          \ on the PVC.\n\n    Kubernetes credentials are read from environment variables\
+          \ (injected from secret):\n        - KUBERNETES_SERVER_URL: The Kubernetes\
+          \ API server URL\n        - KUBERNETES_AUTH_TOKEN: The bearer token for\
+          \ authentication\n        - KUBERNETES_VERIFY_SSL: Whether to verify SSL\
+          \ (default: \"true\")\n\n    Args:\n        pvc_mount_path: Path where the\
+          \ shared PVC is mounted.\n        shared_log_file: Name of the shared log\
+          \ file.\n\n    Returns:\n        Status message.\n    \"\"\"\n    import\
+          \ os\n    from kubernetes import client as k8s_client, config\n    from\
+          \ kubernetes.client.rest import ApiException\n\n    message = \"Hello world\
+          \ from training\"\n    print(message)\n\n    # Write to shared file on PVC\n\
+          \    log_path = os.path.join(pvc_mount_path, shared_log_file)\n    with\
+          \ open(log_path, \"a\") as f:\n        f.write(message + \"\\n\")\n\n  \
+          \  print(f\"Message written to {log_path}\")\n\n    # =========================================================================\n\
+          \    # Kubernetes Client Setup\n    # =========================================================================\n\
+          \    # Credentials are injected from a Kubernetes secret via environment\
+          \ variables\n    # using kfp.kubernetes.use_secret_as_env() in the pipeline\
+          \ definition.\n    # =========================================================================\n\
+          \    print(\"Loading Kubernetes configuration...\")\n\n    k8s_server_url\
+          \ = os.environ.get(\"KUBERNETES_SERVER_URL\")\n    k8s_auth_token = os.environ.get(\"\
+          KUBERNETES_AUTH_TOKEN\")\n\n    if k8s_server_url and k8s_auth_token:\n\
+          \        # Use explicit credentials from secret\n        print(f\"Using\
+          \ Kubernetes credentials from environment (server: {k8s_server_url})\")\n\
+          \        configuration = k8s_client.Configuration()\n        configuration.host\
+          \ = k8s_server_url\n        configuration.api_key = {\"authorization\":\
+          \ f\"Bearer {k8s_auth_token}\"}\n        # Control TLS verification via\
+          \ environment variable\n        configuration.verify_ssl = os.environ.get(\"\
+          KUBERNETES_VERIFY_SSL\", \"true\").lower() == \"true\"\n        if not configuration.verify_ssl:\n\
+          \            print(\"Warning: TLS verification disabled for Kubernetes API\"\
+          )\n        api_client = k8s_client.ApiClient(configuration)\n        print(\"\
+          Loaded Kubernetes configuration from environment variables\")\n    else:\n\
+          \        # Fall back to in-cluster or kubeconfig\n        print(\"No explicit\
+          \ credentials found, using in-cluster or kubeconfig...\")\n        try:\n\
+          \            config.load_incluster_config()\n            print(\"Loaded\
+          \ in-cluster Kubernetes configuration\")\n        except config.ConfigException:\n\
+          \            config.load_kube_config()\n            print(\"Loaded kubeconfig\
+          \ Kubernetes configuration\")\n        api_client = k8s_client.ApiClient()\n\
+          \n    # Create the Custom Objects API client for TrainJob operations\n \
+          \   custom_objects_api = k8s_client.CustomObjectsApi(api_client)\n    print(\"\
+          Successfully created Kubernetes API client\")\n\n    # TODO: Add your TrainJob\
+          \ creation logic here using custom_objects_api\n    # Example:\n    # train_job\
+          \ = {\n    #     \"apiVersion\": \"trainer.kubeflow.org/v1alpha1\",\n  \
+          \  #     \"kind\": \"TrainJob\",\n    #     ...\n    # }\n    # custom_objects_api.create_namespaced_custom_object(...)\n\
+          \n    return \"training completed\"\n\n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
 pipelineInfo:
   description: 'Skeleton pipeline with 4 stages sharing a PVC: dataset download, training,
@@ -319,6 +355,17 @@ platforms:
           imagePullPolicy: IfNotPresent
         exec-training:
           imagePullPolicy: IfNotPresent
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: KUBERNETES_SERVER_URL
+              secretKey: server_url
+            - envVar: KUBERNETES_AUTH_TOKEN
+              secretKey: auth_token
+            optional: false
+            secretName: kubernetes-credentials
+            secretNameParameter:
+              runtimeValue:
+                constant: kubernetes-credentials
     pipelineConfig:
       workspace:
         kubernetes:
