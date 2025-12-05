@@ -62,6 +62,16 @@ def distributed_training_pipeline(
     # =========================================================================
 
     # -------------------------------------------------------------------------
+    # Dataset Download Parameters (Required)
+    # -------------------------------------------------------------------------
+    # Dataset URI with scheme (hf://, s3://, pvc://, or absolute path)
+    # Examples:
+    #   - hf://HuggingFaceH4/ultrachat_200k
+    #   - s3://my-bucket/datasets/chat_data.jsonl
+    #   - pvc://datasets/local_data.jsonl
+    dataset_uri: str,
+
+    # -------------------------------------------------------------------------
     # Shared/Pipeline-wide Parameters
     # -------------------------------------------------------------------------
     shared_log_file: str = "pipeline_log.txt",  # Shared log file name
@@ -106,15 +116,10 @@ def distributed_training_pipeline(
     training_metadata_annotations: str = "",
 
     # -------------------------------------------------------------------------
-    # Dataset Download Parameters (EXAMPLE)
+    # Dataset Download Parameters (Optional)
     # -------------------------------------------------------------------------
-    # Source Configuration:
-    # dataset_source_repo_id: str = "dataset/example",  # HuggingFace dataset repo ID
-    # dataset_source_subset: str = "train",  # Dataset subset to download
-    # dataset_source_revision: str = "main",  # Dataset revision/branch
-    #
-    # Authentication:
-    # dataset_auth_hf_token: str = "",  # HuggingFace token for private datasets
+    dataset_train_split_ratio: float = 0.9,  # Train split ratio (0.9 = 90/10, 0.8 = 80/20)
+    dataset_hf_token: str = "",  # HuggingFace token for gated/private datasets
 
     # -------------------------------------------------------------------------
     # Training Parameters (EXAMPLE)
@@ -210,11 +215,14 @@ def distributed_training_pipeline(
 
     Example Parameters (uncomment in function signature to use):
 
-        Dataset - Source Configuration:
-            dataset_source_repo_id: HuggingFace dataset repository ID.
-            dataset_source_subset: Dataset subset/split to download.
-        Dataset - Authentication:
-            dataset_auth_hf_token: HuggingFace API token for private datasets.
+        Dataset Download:
+            dataset_uri: Dataset URI with scheme. Supported formats:
+                - HuggingFace: hf://dataset-name or dataset-name
+                - AWS S3: s3://bucket/path/file.jsonl (credentials from Kubernetes secret)
+                - HTTP/HTTPS: https://... (e.g., MinIO shared links with embedded credentials)
+                - Local/PVC: pvc://path/file.jsonl or /absolute/path/file.jsonl
+            dataset_train_split_ratio: Train/eval split ratio (0.9 = 90/10, 0.8 = 80/20).
+            dataset_hf_token: HuggingFace token for gated/private datasets.
 
         Training - Hyperparameters:
             training_hyperparam_epochs: Number of training epochs.
@@ -242,14 +250,25 @@ def distributed_training_pipeline(
     # =========================================================================
     # Stage 1: Dataset Download
     # =========================================================================
-    # TODO: Pass dataset parameters to your actual dataset download component
-    # Example: dataset_download(hf_token=dataset_hf_token, repo_id=dataset_repo_id, ...)
     dataset_download_task = dataset_download(
+        dataset_uri=dataset_uri,
         pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
+        train_split_ratio=dataset_train_split_ratio,
+        hf_token=dataset_hf_token,
         shared_log_file=shared_log_file,
     )
     dataset_download_task.set_caching_options(False)
     kfp.kubernetes.set_image_pull_policy(dataset_download_task, "IfNotPresent")
+
+    # Mount S3/MinIO credentials from Kubernetes secret
+    kfp.kubernetes.use_secret_as_env(
+        dataset_download_task,
+        secret_name='minio-secret',
+        secret_key_to_env={
+            'AWS_ACCESS_KEY_ID': 'AWS_ACCESS_KEY_ID',
+            'AWS_SECRET_ACCESS_KEY': 'AWS_SECRET_ACCESS_KEY',
+        }
+    )
 
     # =========================================================================
     # Stage 2: Training

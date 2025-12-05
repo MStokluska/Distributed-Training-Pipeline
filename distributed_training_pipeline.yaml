@@ -15,6 +15,9 @@
 #    model_version: str [Default: '1.0.0']
 #    registry_address: str [Default: '']
 #    registry_port: int [Default: 8080.0]
+#    dataset_hf_token: str [Default: '']
+#    dataset_train_split_ratio: float [Default: 0.9]
+#    dataset_uri: str
 #    shared_log_file: str [Default: 'pipeline_log.txt']
 #    training_accelerate_full_state_at_epoch: bool
 #    training_algorithm: str [Default: 'OSFT']
@@ -51,18 +54,45 @@ components:
     executorLabel: exec-dataset-download
     inputDefinitions:
       parameters:
+        dataset_uri:
+          description: "Dataset URI with scheme. Supported formats:\n- HuggingFace:\
+            \ hf://dataset-name or dataset-name\n- AWS S3: s3://bucket/path/file.jsonl\n\
+            - HTTP/HTTPS: http://... or https://... (e.g., MinIO shared links)\n-\
+            \ Local/PVC: pvc://path/file.jsonl or /absolute/path/file.jsonl\nExamples:\n\
+            \    - hf://HuggingFaceH4/ultrachat_200k\n    - s3://my-bucket/datasets/chat_data.jsonl\n\
+            \    - https://minio.example.com/api/v1/download-shared-object/...\n \
+            \   - pvc://datasets/local_data.jsonl\n    - /workspace/data/dataset.jsonl\n\
+            Note: S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) must be\n\
+            provided via Kubernetes secret mounted as environment variables"
+          parameterType: STRING
+        hf_token:
+          defaultValue: ''
+          description: HuggingFace token for gated/private datasets
+          isOptional: true
+          parameterType: STRING
         pvc_mount_path:
-          description: Path where the shared PVC is mounted.
+          description: Path where the shared PVC is mounted
           parameterType: STRING
         shared_log_file:
           defaultValue: pipeline_log.txt
-          description: Name of the shared log file.
+          description: Name of the shared log file
           isOptional: true
           parameterType: STRING
+        train_split_ratio:
+          defaultValue: 0.9
+          description: Ratio for train split (e.g., 0.9 for 90/10, 0.8 for 80/20)
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
     outputDefinitions:
-      parameters:
-        Output:
-          parameterType: STRING
+      artifacts:
+        eval_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
   comp-eval-lm-eval:
     executorLabel: exec-eval-lm-eval
     inputDefinitions:
@@ -358,9 +388,10 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
+          \ python3 -m pip install --quiet --no-warn-script-location 'datasets>=2.14.0'\
+          \ 'huggingface-hub>=0.20.0' 's3fs>=2023.1.0'  &&  python3 -m pip install\
+          \ --quiet --no-warn-script-location 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -372,17 +403,203 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef dataset_download(\n    pvc_mount_path: str,\n    shared_log_file:\
-          \ str = \"pipeline_log.txt\",\n) -> str:\n    \"\"\"Download/prepare the\
-          \ dataset.\n\n    This skeleton component writes a hello world message to\
-          \ a shared file on the PVC.\n\n    Args:\n        pvc_mount_path: Path where\
-          \ the shared PVC is mounted.\n        shared_log_file: Name of the shared\
-          \ log file.\n\n    Returns:\n        Status message.\n    \"\"\"\n    import\
-          \ os\n\n    message = \"Hello world from dataset download\"\n    print(message)\n\
-          \n    # Write to shared file on PVC\n    log_path = os.path.join(pvc_mount_path,\
-          \ shared_log_file)\n    with open(log_path, \"a\") as f:\n        f.write(message\
-          \ + \"\\n\")\n\n    print(f\"Message written to {log_path}\")\n    return\
-          \ \"dataset_download completed\"\n\n"
+          \ *\n\ndef dataset_download(\n    train_dataset: dsl.Output[dsl.Dataset],\n\
+          \    eval_dataset: dsl.Output[dsl.Dataset],\n    dataset_uri: str,\n   \
+          \ pvc_mount_path: str,\n    train_split_ratio: float = 0.9,\n    hf_token:\
+          \ str = \"\",\n    shared_log_file: str = \"pipeline_log.txt\",\n):\n  \
+          \  \"\"\"Download and prepare datasets from multiple sources.\n\n    Validates\
+          \ that datasets follow chat template format (messages/conversations with\
+          \ role/content).\n\n    Args:\n        train_dataset: Output artifact for\
+          \ training dataset (JSONL format)\n        eval_dataset: Output artifact\
+          \ for evaluation dataset (JSONL format)\n        dataset_uri: Dataset URI\
+          \ with scheme. Supported formats:\n            - HuggingFace: hf://dataset-name\
+          \ or dataset-name\n            - AWS S3: s3://bucket/path/file.jsonl\n \
+          \           - HTTP/HTTPS: http://... or https://... (e.g., MinIO shared\
+          \ links)\n            - Local/PVC: pvc://path/file.jsonl or /absolute/path/file.jsonl\n\
+          \            Examples:\n                - hf://HuggingFaceH4/ultrachat_200k\n\
+          \                - s3://my-bucket/datasets/chat_data.jsonl\n           \
+          \     - https://minio.example.com/api/v1/download-shared-object/...\n  \
+          \              - pvc://datasets/local_data.jsonl\n                - /workspace/data/dataset.jsonl\n\
+          \            Note: S3 credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)\
+          \ must be\n            provided via Kubernetes secret mounted as environment\
+          \ variables\n        pvc_mount_path: Path where the shared PVC is mounted\n\
+          \        train_split_ratio: Ratio for train split (e.g., 0.9 for 90/10,\
+          \ 0.8 for 80/20)\n        hf_token: HuggingFace token for gated/private\
+          \ datasets\n        shared_log_file: Name of the shared log file\n    \"\
+          \"\"\n    import os\n    from datasets import Dataset, load_dataset\n\n\
+          \    def log_message(msg: str):\n        \"\"\"Log message to console and\
+          \ shared log file.\"\"\"\n        print(msg)\n        log_path = os.path.join(pvc_mount_path,\
+          \ shared_log_file)\n        with open(log_path, \"a\") as f:\n         \
+          \   f.write(msg + \"\\n\")\n\n    def parse_uri(uri: str) -> tuple[str,\
+          \ str]:\n        \"\"\"Parse dataset URI to determine source type and path.\n\
+          \n        Args:\n            uri: Dataset URI with scheme. Supported formats:\n\
+          \                - HuggingFace: hf://dataset-name or dataset-name\n    \
+          \            - S3/MinIO: s3://bucket/path/to/file.jsonl\n              \
+          \  - HTTP/HTTPS: http://... or https://... (e.g., MinIO shared links)\n\
+          \                - Local/PVC: pvc://path/to/file.jsonl or /absolute/path/to/file.jsonl\n\
+          \n        Returns:\n            Tuple of (source_type, path) where source_type\
+          \ is 'hf', 's3', 'http', or 'local'\n        \"\"\"\n        uri = uri.strip()\n\
+          \n        # Check for explicit schemes\n        if uri.startswith(\"http://\"\
+          ) or uri.startswith(\"https://\"):\n            return (\"http\", uri)\n\
+          \        elif uri.startswith(\"hf://\"):\n            return (\"hf\", uri[5:])\n\
+          \        elif uri.startswith(\"s3://\"):\n            return (\"s3\", uri[5:])\n\
+          \        elif uri.startswith(\"pvc://\"):\n            return (\"local\"\
+          , uri[6:])\n        elif uri.startswith(\"/\"):\n            return (\"\
+          local\", uri)\n        else:\n            # Default to HuggingFace if no\
+          \ scheme\n            return (\"hf\", uri)\n\n    def validate_chat_format_dataset(dataset:\
+          \ Dataset) -> bool:\n        \"\"\"Validate that dataset follows chat template\
+          \ format.\n\n        Expected format:\n        - Each entry should have\
+          \ 'messages' or 'conversations' field\n        - Messages should be a list\
+          \ of dicts with 'role' and 'content'\n        - Roles should be from: 'system',\
+          \ 'user', 'assistant', 'function', 'tool'\n        \"\"\"\n        if len(dataset)\
+          \ == 0:\n            raise ValueError(\"Dataset is empty\")\n\n        valid_roles\
+          \ = {'system', 'user', 'assistant', 'function', 'tool'}\n\n        # Check\
+          \ first 100 examples (or fewer if dataset is smaller)\n        num_to_check\
+          \ = min(100, len(dataset))\n\n        for i in range(num_to_check):\n  \
+          \          item = dataset[i]\n\n            # Check for common chat format\
+          \ fields\n            if 'messages' in item:\n                messages =\
+          \ item['messages']\n            elif 'conversations' in item:\n        \
+          \        messages = item['conversations']\n            else:\n         \
+          \       raise ValueError(\n                    f\"Item {i} missing 'messages'\
+          \ or 'conversations' field. \"\n                    f\"Found keys: {list(item.keys())}\"\
+          \n                )\n\n            if not isinstance(messages, list):\n\
+          \                raise ValueError(f\"Item {i}: messages must be a list\"\
+          )\n\n            for j, msg in enumerate(messages):\n                if\
+          \ not isinstance(msg, dict):\n                    raise ValueError(f\"Item\
+          \ {i}, message {j}: must be a dict\")\n\n                if 'role' not in\
+          \ msg or 'content' not in msg:\n                    raise ValueError(\n\
+          \                        f\"Item {i}, message {j}: must have 'role' and\
+          \ 'content' fields\"\n                    )\n\n                if msg['role']\
+          \ not in valid_roles:\n                    raise ValueError(\n         \
+          \               f\"Item {i}, message {j}: invalid role '{msg['role']}'.\
+          \ \"\n                        f\"Must be one of {valid_roles}\"\n      \
+          \              )\n\n        log_message(f\"Dataset validated: {len(dataset)}\
+          \ examples in chat format\")\n        return True\n\n    def download_from_huggingface(dataset_path:\
+          \ str) -> Dataset:\n        \"\"\"Download dataset from HuggingFace.\"\"\
+          \"\n        log_message(f\"Downloading from HuggingFace: {dataset_path}\"\
+          )\n\n        # Set up authentication if token provided\n        if hf_token:\n\
+          \            log_message(\"Using provided HuggingFace token for authentication\"\
+          )\n\n        # Try to load with \"train\" split first\n        load_kwargs\
+          \ = {\n            \"path\": dataset_path,\n            \"split\": \"train\"\
+          ,\n        }\n\n        if hf_token:\n            load_kwargs[\"token\"\
+          ] = hf_token\n\n        try:\n            dataset = load_dataset(**load_kwargs)\n\
+          \            log_message(f\"Downloaded {len(dataset)} examples from HuggingFace\
+          \ (split: train)\")\n            return dataset\n\n        except ValueError\
+          \ as e:\n            # If \"train\" split doesn't exist, try to find an\
+          \ alternative\n            if \"Unknown split\" in str(e):\n           \
+          \     log_message(f\"'train' split not found, attempting to detect available\
+          \ splits...\")\n\n                # Load dataset info without specifying\
+          \ split\n                try:\n                    load_kwargs_no_split\
+          \ = {\"path\": dataset_path}\n                    if hf_token:\n       \
+          \                 load_kwargs_no_split[\"token\"] = hf_token\n\n       \
+          \             # Load all splits\n                    dataset_dict = load_dataset(**load_kwargs_no_split)\n\
+          \n                    # Try common training split names in order of preference\n\
+          \                    preferred_splits = [\"train_sft\", \"train_gen\", \"\
+          train\", \"training\"]\n\n                    for split_name in preferred_splits:\n\
+          \                        if split_name in dataset_dict:\n              \
+          \              log_message(f\"Using split: {split_name}\")\n           \
+          \                 dataset = dataset_dict[split_name]\n                 \
+          \           log_message(f\"Downloaded {len(dataset)} examples from HuggingFace\
+          \ (split: {split_name})\")\n                            return dataset\n\
+          \n                    # If none of the preferred splits found, use the first\
+          \ available split\n                    available_splits = list(dataset_dict.keys())\n\
+          \                    if available_splits:\n                        first_split\
+          \ = available_splits[0]\n                        log_message(f\"Using first\
+          \ available split: {first_split}\")\n                        dataset = dataset_dict[first_split]\n\
+          \                        log_message(f\"Downloaded {len(dataset)} examples\
+          \ from HuggingFace (split: {first_split})\")\n                        return\
+          \ dataset\n                    else:\n                        raise ValueError(\"\
+          No splits found in dataset\")\n\n                except Exception as inner_e:\n\
+          \                    log_message(f\"Error detecting splits: {str(inner_e)}\"\
+          )\n                    raise\n            else:\n                log_message(f\"\
+          Error loading dataset: {str(e)}\")\n                raise\n        except\
+          \ Exception as e:\n            log_message(f\"Error loading dataset: {str(e)}\"\
+          )\n            raise\n\n    def download_from_s3(s3_path: str) -> Dataset:\n\
+          \        \"\"\"Download dataset from AWS S3 using datasets library native\
+          \ S3 support.\"\"\"\n\n        log_message(f\"Loading from AWS S3: s3://{s3_path}\"\
+          )\n\n        # Get credentials from Kubernetes secret (environment variables)\n\
+          \        access_key = os.environ.get('AWS_ACCESS_KEY_ID')\n        secret_key\
+          \ = os.environ.get('AWS_SECRET_ACCESS_KEY')\n\n        # Build storage_options\
+          \ for datasets library\n        storage_options = {}\n\n        # Add credentials\
+          \ if available (otherwise uses default AWS credential chain)\n        if\
+          \ access_key and secret_key:\n            storage_options['key'] = access_key\n\
+          \            storage_options['secret'] = secret_key\n            log_message(\"\
+          Using S3 credentials from Kubernetes secret\")\n        else:\n        \
+          \    log_message(\"No credentials found, using default AWS credential chain\
+          \ (IAM role, etc.)\")\n\n        # Load dataset directly from S3 (no temp\
+          \ file needed)\n        dataset = load_dataset(\n            'json',\n \
+          \           data_files=f's3://{s3_path}',\n            storage_options=storage_options,\n\
+          \            split='train'\n        )\n\n        log_message(f\"Loaded {len(dataset)}\
+          \ examples from AWS S3\")\n        return dataset\n\n    def download_from_http(http_url:\
+          \ str) -> Dataset:\n        \"\"\"Download dataset from HTTP/HTTPS URL (e.g.,\
+          \ MinIO shared links).\"\"\"\n\n        log_message(f\"Loading from HTTP:\
+          \ {http_url}\")\n\n        # Load dataset directly from HTTP URL using datasets\
+          \ library\n        dataset = load_dataset('json', data_files=http_url, split='train')\n\
+          \n        log_message(f\"Loaded {len(dataset)} examples from HTTP\")\n \
+          \       return dataset\n\n    def load_from_local(file_path: str) -> Dataset:\n\
+          \        \"\"\"Load dataset from local/PVC file path.\"\"\"\n        log_message(f\"\
+          Loading from local path: {file_path}\")\n\n        # If relative path, make\
+          \ it relative to pvc_mount_path\n        if not file_path.startswith(\"\
+          /\"):\n            file_path = os.path.join(pvc_mount_path, file_path)\n\
+          \n        if not os.path.exists(file_path):\n            raise FileNotFoundError(f\"\
+          Dataset file not found: {file_path}\")\n\n        # Load using datasets\
+          \ library (supports .json and .jsonl)\n        if file_path.endswith('.jsonl')\
+          \ or file_path.endswith('.json'):\n            dataset = load_dataset('json',\
+          \ data_files=file_path, split='train')\n            log_message(f\"Loaded\
+          \ {len(dataset)} examples from local file\")\n            return dataset\n\
+          \        else:\n            raise ValueError(f\"Unsupported file format:\
+          \ {file_path}. Expected .json or .jsonl\")\n\n    # =========================================================================\n\
+          \    # Main execution\n    # =========================================================================\n\
+          \n    log_message(\"=\"*60)\n    log_message(\"Dataset Download Component\
+          \ Started\")\n    log_message(\"=\"*60)\n    log_message(f\"Dataset URI:\
+          \ {dataset_uri}\")\n    log_message(f\"Train/Eval split: {train_split_ratio:.0%}/{1-train_split_ratio:.0%}\"\
+          )\n\n    try:\n        # Parse URI and determine source\n        source_type,\
+          \ source_path = parse_uri(dataset_uri)\n        log_message(f\"Source type:\
+          \ {source_type}\")\n        log_message(f\"Source path: {source_path}\"\
+          )\n\n        # Download/load dataset based on source\n        if source_type\
+          \ == \"hf\":\n            dataset = download_from_huggingface(source_path)\n\
+          \        elif source_type == \"s3\":\n            dataset = download_from_s3(source_path)\n\
+          \        elif source_type == \"http\":\n            dataset = download_from_http(source_path)\n\
+          \        elif source_type == \"local\":\n            dataset = load_from_local(source_path)\n\
+          \        else:\n            raise ValueError(f\"Unknown source type: {source_type}\"\
+          )\n\n        # Validate chat template format\n        log_message(\"Validating\
+          \ chat template format...\")\n        validate_chat_format_dataset(dataset)\n\
+          \n        # Split dataset using built-in method\n        log_message(f\"\
+          Splitting dataset with {len(dataset)} examples...\")\n        split_dataset\
+          \ = dataset.train_test_split(\n            test_size=1 - train_split_ratio,\n\
+          \            seed=42\n        )\n\n        train_ds = split_dataset[\"train\"\
+          ]\n        eval_ds = split_dataset[\"test\"]\n\n        log_message(f\"\
+          Split complete: {len(train_ds)} train, {len(eval_ds)} eval\")\n\n      \
+          \  # Save datasets as JSONL files to KFP artifacts\n        log_message(f\"\
+          Saving train dataset to {train_dataset.path}\")\n        train_ds.to_json(train_dataset.path,\
+          \ orient='records', lines=True)\n\n        log_message(f\"Saving eval dataset\
+          \ to {eval_dataset.path}\")\n        eval_ds.to_json(eval_dataset.path,\
+          \ orient='records', lines=True)\n\n        # Also save to shared PVC for\
+          \ next pipeline step\n        pvc_dataset_dir = os.path.join(pvc_mount_path,\
+          \ \"datasets\")\n        os.makedirs(pvc_dataset_dir, exist_ok=True)\n\n\
+          \        pvc_train_path = os.path.join(pvc_dataset_dir, \"train.jsonl\"\
+          )\n        pvc_eval_path = os.path.join(pvc_dataset_dir, \"eval.jsonl\"\
+          )\n\n        log_message(f\"Saving train dataset to PVC: {pvc_train_path}\"\
+          )\n        train_ds.to_json(pvc_train_path, orient='records', lines=True)\n\
+          \n        log_message(f\"Saving eval dataset to PVC: {pvc_eval_path}\")\n\
+          \        eval_ds.to_json(pvc_eval_path, orient='records', lines=True)\n\n\
+          \        # Save metadata\n        train_dataset.metadata = {\n         \
+          \   \"dataset_uri\": dataset_uri,\n            \"num_examples\": len(train_ds),\n\
+          \            \"split\": \"train\",\n            \"train_split_ratio\": train_split_ratio,\n\
+          \            \"artifact_path\": train_dataset.path,\n            \"pvc_path\"\
+          : pvc_train_path,\n        }\n\n        eval_dataset.metadata = {\n    \
+          \        \"dataset_uri\": dataset_uri,\n            \"num_examples\": len(eval_ds),\n\
+          \            \"split\": \"eval\",\n            \"train_split_ratio\": train_split_ratio,\n\
+          \            \"artifact_path\": eval_dataset.path,\n            \"pvc_path\"\
+          : pvc_eval_path,\n        }\n\n        log_message(\"=\"*60)\n        log_message(\"\
+          Dataset Download Component Completed Successfully\")\n        log_message(f\"\
+          \  Train: {len(train_ds)} examples\")\n        log_message(f\"    - KFP\
+          \ Artifact: {train_dataset.path}\")\n        log_message(f\"    - PVC: {pvc_train_path}\"\
+          )\n        log_message(f\"  Eval: {len(eval_ds)} examples\")\n        log_message(f\"\
+          \    - KFP Artifact: {eval_dataset.path}\")\n        log_message(f\"   \
+          \ - PVC: {pvc_eval_path}\")\n        log_message(\"=\"*60)\n\n    except\
+          \ Exception as e:\n        error_msg = f\"ERROR in dataset download: {str(e)}\"\
+          \n        log_message(error_msg)\n        raise\n\n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
     exec-eval-lm-eval:
       container:
@@ -939,11 +1156,17 @@ root:
           name: comp-dataset-download
         inputs:
           parameters:
+            dataset_uri:
+              componentInputParameter: dataset_uri
+            hf_token:
+              componentInputParameter: dataset_hf_token
             pvc_mount_path:
               runtimeValue:
                 constant: '{{$.workspace_path}}'
             shared_log_file:
               componentInputParameter: shared_log_file
+            train_split_ratio:
+              componentInputParameter: dataset_train_split_ratio
         taskInfo:
           name: dataset-download
       eval-lm-eval:
@@ -1127,6 +1350,16 @@ root:
         defaultValue: 8080.0
         isOptional: true
         parameterType: NUMBER_INTEGER
+      dataset_hf_token:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
+      dataset_train_split_ratio:
+        defaultValue: 0.9
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      dataset_uri:
+        parameterType: STRING
       shared_log_file:
         defaultValue: pipeline_log.txt
         description: Name of the shared log file for tracking completion.
@@ -1257,6 +1490,17 @@ platforms:
       executors:
         exec-dataset-download:
           imagePullPolicy: IfNotPresent
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AWS_ACCESS_KEY_ID
+              secretKey: AWS_ACCESS_KEY_ID
+            - envVar: AWS_SECRET_ACCESS_KEY
+              secretKey: AWS_SECRET_ACCESS_KEY
+            optional: false
+            secretName: minio-secret
+            secretNameParameter:
+              runtimeValue:
+                constant: minio-secret
         exec-eval-lm-eval:
           imagePullPolicy: IfNotPresent
         exec-model-registry:
