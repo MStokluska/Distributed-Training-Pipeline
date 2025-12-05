@@ -13,13 +13,14 @@ prints the entire log to verify all stages completed successfully.
 import kfp
 from kfp import dsl
 import kfp.kubernetes
+from typing import Literal
 
 # Import components using relative path
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from components.dataset_download import dataset_download
-from components.training import training
+from components.training import train_model
 from components.eval_lm_eval import eval_lm_eval
 from components.model_registry import model_registry
 
@@ -64,6 +65,45 @@ def distributed_training_pipeline(
     # Shared/Pipeline-wide Parameters
     # -------------------------------------------------------------------------
     shared_log_file: str = "pipeline_log.txt",  # Shared log file name
+
+    # Training Component Parameters (prefixed with training_)
+    training_algorithm: str = "OSFT",
+    training_base_model: str = "Qwen/Qwen2.5-1.5B-Instruct",
+    
+    # Hyperparameters
+    training_unfreeze_rank_ratio: float = 0.25,
+    training_effective_batch_size: int = 128,
+    training_num_epochs: int = 1,
+    training_learning_rate: float = 5e-6,
+    training_backend: str = "mini-trainer",
+    training_lr_warmup_steps: int = 0,
+    training_save_samples: int = None,
+    training_accelerate_full_state_at_epoch: bool = None,
+    training_seed: int = 42,
+    training_max_tokens_per_gpu: int = 64000,
+    training_max_seq_len: int = 8192,
+    training_target_patterns: str = "",
+
+    # Resources
+    training_resources_num_nodes: int = 2,
+    training_resource_cpu_per_worker: str = "8",
+    training_resource_gpu_per_worker: int = 1,
+    training_resource_memory_per_worker: str = "32Gi",
+    training_resource_num_procs_per_worker: int = 1,
+    training_resource_num_workers: int = 1,
+
+    training_use_liger: bool = True,
+    training_use_processed_dataset: bool = None,
+    training_unmask_messages: bool = None,
+    training_lr_scheduler: str = "cosine",
+    training_lr_scheduler_kwargs: str = "",
+    
+    training_checkpoint_at_epoch: bool = False,
+    training_save_final_checkpoint: bool = True,
+    # Runtime/resource/env parameters exposed for training
+    training_envs: str = "",
+    training_metadata_labels: str = "",
+    training_metadata_annotations: str = "",
 
     # -------------------------------------------------------------------------
     # Dataset Download Parameters (EXAMPLE)
@@ -134,6 +174,31 @@ def distributed_training_pipeline(
     Args:
         shared_log_file: Name of the shared log file for tracking completion.
 
+        Algorithm common:
+            training_algorithm: Training algorithm. "OSFT" = Orthogonal Subspace Fine-Tuning (continual learning), "SFT" = Standard Fine-Tuning.
+            training_base_model: model_path: Path to the model to fine-tune
+            training_learning_rate: learning_rate: Learning rate for training
+            training_effective_batch_size: effective_batch_size: Effective batch size for training
+            training_max_seq_len: max_seq_len: Maximum sequence length
+            training_max_tokens_per_gpu: max_tokens_per_gpu: Maximum tokens per GPU in a mini-batch (hard-cap for memory to avoid OOMs). Used to automatically calculate mini-batch size and gradient accumulation to maintain the desired effective_batch_size while staying within memory limits.
+            training_num_epochs: num_epochs: Number of training epochs
+            training_lr_scheduler: lr_scheduler: Name of the PyTorch learning rate scheduler to use
+            training_lr_warmup_steps: warmup_steps: Number of warmup steps
+            training_lr_scheduler_kwargs: lr_scheduler_kwargs: Additional scheduler parameters (comma-delimited key=value pairs)
+            training_accelerate_full_state_at_epoch: accelerate_full_state_at_epoch: Whether to save full state at epoch for automatic checkpoint resumption
+            training_checkpoint_at_epoch: checkpoint_at_epoch: Whether to checkpoint at each epoch
+            training_save_samples: save_samples: Number of samples to save after training (0 disables saving based on sample count)
+            training_backend: backend: Backend implementation to use (default: "instructlab-training")
+            training_target_patterns: target_patterns: Patterns to match when selecting modules for OSFT
+            training_use_liger: use_liger: Whether to use Liger kernels for training
+            training_use_processed_dataset: use_processed_dataset: Whether to use the processed dataset
+            training_unmask_messages: unmask_messages: Whether to unmask messages during data processing
+
+        Notes on paths (component-resolved):
+            data_path: Path to the training data (resolved by component).
+            ckpt_output_dir: Directory to save checkpoints (managed by component under the PVC).
+            data_output_dir: Directory to save processed data (optional; component-managed when not provided).
+
     Example Parameters (uncomment in function signature to use):
 
         Dataset - Source Configuration:
@@ -183,13 +248,56 @@ def distributed_training_pipeline(
     # TODO: Pass training parameters to your actual training component
     # Example: train_model(epochs=training_epochs, batch_size=training_batch_size, 
     #                      use_liger=training_use_liger, ...)
-    training_task = training(
-        pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        shared_log_file=shared_log_file,
+    training_task = train_model(
+        pvc_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
+        training_base_model=training_base_model,
+        training_algorithm=training_algorithm,
+        training_unfreeze_rank_ratio=training_unfreeze_rank_ratio,
+        training_effective_batch_size=training_effective_batch_size,
+        training_max_tokens_per_gpu=training_max_tokens_per_gpu,
+        training_max_seq_len=training_max_seq_len,
+        training_learning_rate=training_learning_rate,
+        training_backend=training_backend,
+        training_target_patterns=training_target_patterns,
+        training_seed=training_seed,
+        training_use_liger=training_use_liger,
+        training_use_processed_dataset=training_use_processed_dataset,
+        training_unmask_messages=training_unmask_messages,
+        training_lr_scheduler=training_lr_scheduler,
+        training_lr_warmup_steps=training_lr_warmup_steps,
+        training_save_samples=training_save_samples,
+        training_accelerate_full_state_at_epoch=training_accelerate_full_state_at_epoch,
+        training_lr_scheduler_kwargs=training_lr_scheduler_kwargs,
+        training_checkpoint_at_epoch=training_checkpoint_at_epoch,
+        training_save_final_checkpoint=training_save_final_checkpoint,
+        training_num_epochs=training_num_epochs,
+        training_envs=training_envs,
+        training_resource_cpu_per_worker=training_resource_cpu_per_worker,
+        training_resource_gpu_per_worker=training_resource_gpu_per_worker,
+        training_resource_memory_per_worker=training_resource_memory_per_worker,
+        training_resource_num_procs_per_worker=training_resource_num_procs_per_worker,
+        training_resource_num_workers=training_resource_num_workers,
+        training_metadata_labels=training_metadata_labels,
+        training_metadata_annotations=training_metadata_annotations,
     )
     training_task.set_caching_options(False)
     training_task.after(dataset_download_task)
     kfp.kubernetes.set_image_pull_policy(training_task, "IfNotPresent")
+
+    # Inject Kubernetes credentials for TrainJob creation (from secret)
+    # The training component reads these environment variables to connect to the K8s API.
+    # Create the secret with:
+    #   kubectl create secret generic kubernetes-credentials \
+    #     --from-literal=server_url=https://your-k8s-api:6443 \
+    #     --from-literal=auth_token=your-token
+    kfp.kubernetes.use_secret_as_env(
+        task=training_task,
+        secret_name="kubernetes-credentials",
+        secret_key_to_env={
+            "server_url": "KUBERNETES_SERVER_URL",
+            "auth_token": "KUBERNETES_AUTH_TOKEN",
+        },
+    )
 
     # =========================================================================
     # Stage 3: Evaluation with lm-eval
