@@ -3,6 +3,7 @@
 # Description: Skeleton pipeline with 4 stages sharing a PVC: dataset download, training, lm-eval, model registry
 # Inputs:
 #    author: str [Default: 'pipeline']
+#    model_description: str [Default: '']
 #    model_format_name: str [Default: 'pytorch']
 #    model_format_version: str [Default: '1.0']
 #    model_name: str [Default: 'fine-tuned-model']
@@ -51,73 +52,74 @@ components:
   comp-model-registry:
     executorLabel: exec-model-registry
     inputDefinitions:
+      artifacts:
+        input_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          isOptional: true
+        input_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isOptional: true
       parameters:
         author:
           defaultValue: pipeline
-          description: Author name for the model.
+          isOptional: true
+          parameterType: STRING
+        model_description:
+          defaultValue: ''
           isOptional: true
           parameterType: STRING
         model_format_name:
           defaultValue: pytorch
-          description: Model format (e.g., pytorch, tensorflow, onnx).
           isOptional: true
           parameterType: STRING
         model_format_version:
           defaultValue: '1.0'
-          description: Model format version.
           isOptional: true
           parameterType: STRING
         model_name:
           defaultValue: fine-tuned-model
-          description: Name for the registered model.
           isOptional: true
           parameterType: STRING
         model_s3_access_key:
           defaultValue: ''
-          description: S3 access key.
           isOptional: true
           parameterType: STRING
         model_s3_bucket:
           defaultValue: ''
-          description: S3 bucket containing the model.
           isOptional: true
           parameterType: STRING
         model_s3_endpoint:
           defaultValue: ''
-          description: S3/MinIO endpoint URL.
           isOptional: true
           parameterType: STRING
         model_s3_key:
           defaultValue: ''
-          description: S3 key/prefix for the model.
           isOptional: true
           parameterType: STRING
         model_s3_secret_key:
           defaultValue: ''
-          description: S3 secret key.
           isOptional: true
           parameterType: STRING
         model_version:
           defaultValue: 1.0.0
-          description: Version string for this model.
           isOptional: true
           parameterType: STRING
         pvc_mount_path:
-          description: Path to shared PVC.
           parameterType: STRING
         registry_address:
           defaultValue: ''
-          description: Model Registry server address (e.g., pipeline-test.rhoai-model-registries.svc).
           isOptional: true
           parameterType: STRING
         registry_port:
           defaultValue: 8080.0
-          description: Model Registry port (default 8080 for HTTP).
           isOptional: true
           parameterType: NUMBER_INTEGER
         shared_log_file:
           defaultValue: pipeline_log.txt
-          description: Shared log file name.
           isOptional: true
           parameterType: STRING
     outputDefinitions:
@@ -245,62 +247,75 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef model_registry(\n    pvc_mount_path: str,\n    model_s3_bucket:\
+          \ *\n\ndef model_registry(\n    pvc_mount_path: str,\n    input_model: dsl.Input[dsl.Model]\
+          \ = None,\n    input_metrics: dsl.Input[dsl.Metrics] = None,\n    model_s3_bucket:\
           \ str = \"\",\n    model_s3_key: str = \"\",\n    model_s3_endpoint: str\
           \ = \"\",\n    model_s3_access_key: str = \"\",\n    model_s3_secret_key:\
           \ str = \"\",\n    registry_address: str = \"\",\n    registry_port: int\
           \ = 8080,\n    model_name: str = \"fine-tuned-model\",\n    model_version:\
           \ str = \"1.0.0\",\n    model_format_name: str = \"pytorch\",\n    model_format_version:\
-          \ str = \"1.0\",\n    author: str = \"pipeline\",\n    shared_log_file:\
-          \ str = \"pipeline_log.txt\",\n) -> str:\n    \"\"\"Register model to Kubeflow\
-          \ Model Registry.\n\n    Args:\n        pvc_mount_path: Path to shared PVC.\n\
-          \        model_s3_bucket: S3 bucket containing the model.\n        model_s3_key:\
-          \ S3 key/prefix for the model.\n        model_s3_endpoint: S3/MinIO endpoint\
-          \ URL.\n        model_s3_access_key: S3 access key.\n        model_s3_secret_key:\
-          \ S3 secret key.\n        registry_address: Model Registry server address\
-          \ (e.g., pipeline-test.rhoai-model-registries.svc).\n        registry_port:\
-          \ Model Registry port (default 8080 for HTTP).\n        model_name: Name\
-          \ for the registered model.\n        model_version: Version string for this\
-          \ model.\n        model_format_name: Model format (e.g., pytorch, tensorflow,\
-          \ onnx).\n        model_format_version: Model format version.\n        author:\
-          \ Author name for the model.\n        shared_log_file: Shared log file name.\n\
-          \n    Returns:\n        Registered model ID.\n    \"\"\"\n    import os\n\
-          \    from model_registry import ModelRegistry\n\n    print(\"=\" * 60)\n\
-          \    print(\"MODEL REGISTRY COMPONENT\")\n    print(\"=\" * 60)\n\n    #\
-          \ Build model URI\n    model_uri = f\"s3://{model_s3_bucket}/{model_s3_key}\"\
-          \ if model_s3_bucket else f\"pvc://{pvc_mount_path}/model\"\n    print(f\"\
-          \\n  Model Name: {model_name}\")\n    print(f\"  Model Version: {model_version}\"\
-          )\n    print(f\"  Model URI: {model_uri}\")\n    print(f\"  Registry: {registry_address}:{registry_port}\"\
-          )\n\n    # Verify S3 model exists\n    if model_s3_bucket and model_s3_access_key\
+          \ str = \"1.0\",\n    model_description: str = \"\",\n    author: str =\
+          \ \"pipeline\",\n    shared_log_file: str = \"pipeline_log.txt\",\n) ->\
+          \ str:\n    \"\"\"Register model to Kubeflow Model Registry.\n\n    Prefers\
+          \ the upstream model artifact (input_model) produced by training.\n    Falls\
+          \ back to S3 parameters when no model artifact is provided.\n    \"\"\"\n\
+          \    import os\n    import json\n    from model_registry import ModelRegistry\n\
+          \    from model_registry.exceptions import StoreError\n\n    print(\"=\"\
+          \ * 60)\n    print(\"MODEL REGISTRY COMPONENT\")\n    print(\"=\" * 60)\n\
+          \n    # Derive model URI and name from upstream artifact when available\n\
+          \    resolved_model_name = model_name\n    model_uri = \"\"\n    if input_model:\n\
+          \        # Prefer artifact_path metadata if present, else the artifact path\n\
+          \        meta = getattr(input_model, \"metadata\", {}) or {}\n        resolved_model_name\
+          \ = meta.get(\"model_name\", model_name)\n        model_uri = meta.get(\"\
+          artifact_path\") or getattr(input_model, \"path\", \"\") or model_uri\n\
+          \        if not model_uri:\n            model_uri = f\"pvc://{pvc_mount_path}/model\"\
+          \n    elif model_s3_bucket:\n        model_uri = f\"s3://{model_s3_bucket}/{model_s3_key}\"\
+          \n    else:\n        model_uri = f\"pvc://{pvc_mount_path}/model\"\n\n \
+          \   print(f\"\\n  Model Name: {resolved_model_name}\")\n    print(f\"  Model\
+          \ Version: {model_version}\")\n    print(f\"  Model URI: {model_uri}\")\n\
+          \    print(f\"  Registry: {registry_address}:{registry_port}\")\n\n    #\
+          \ Verify S3 model exists\n    if model_s3_bucket and model_s3_access_key\
           \ and model_s3_secret_key:\n        print(\"\\n[Verifying S3 model...]\"\
           )\n        import boto3\n        from botocore.client import Config\n  \
           \      s3 = boto3.client(\n            \"s3\",\n            endpoint_url=model_s3_endpoint,\n\
           \            aws_access_key_id=model_s3_access_key,\n            aws_secret_access_key=model_s3_secret_key,\n\
           \            config=Config(signature_version=\"s3v4\"),\n        )\n   \
-          \     response = s3.list_objects_v2(Bucket=model_s3_bucket, Prefix=model_s3_key)\n\
-          \        files = response.get(\"Contents\", [])\n        print(f\"  Found\
-          \ {len(files)} files in S3\")\n        for obj in files[:5]:\n         \
-          \   print(f\"    - {obj['Key']}\")\n\n    # Register to Model Registry\n\
-          \    model_id = \"SKIPPED\"\n    if registry_address:\n        print(\"\\\
-          n[Registering to Model Registry...]\")\n\n        # Ensure address has scheme\
-          \ for client URL building\n        server_addr = registry_address\n    \
-          \    if not server_addr.startswith(\"http://\") and not server_addr.startswith(\"\
-          https://\"):\n            server_addr = f\"http://{server_addr}\"\n    \
-          \    # Create client (HTTP/insecure)\n        client = ModelRegistry(\n\
-          \            server_address=server_addr,\n            port=registry_port,\n\
-          \            author=author,\n            is_secure=False,  # HTTP\n    \
-          \    )\n\n        # Register the model\n        registered_model = client.register_model(\n\
-          \            name=model_name,\n            uri=model_uri,\n            version=model_version,\n\
-          \            model_format_name=model_format_name,\n            model_format_version=model_format_version,\n\
-          \            author=author,\n            description=f\"Registered via pipeline\
-          \ - {model_version}\",\n        )\n\n        model_id = registered_model.id\n\
-          \        print(f\"  Registered model: {registered_model.name} (ID: {model_id})\"\
-          )\n\n    # Write to shared log\n    log_path = os.path.join(pvc_mount_path,\
-          \ shared_log_file)\n    with open(log_path, \"a\") as f:\n        f.write(f\"\
-          Model Registry: {model_name} v{model_version} (ID: {model_id})\\n\")\n \
-          \   print(f\"\\n[Log written to {log_path}]\")\n\n    print(\"\\n\" + \"\
-          =\" * 60)\n    print(f\"COMPLETE - Model ID: {model_id}\")\n    print(\"\
-          =\" * 60)\n\n    return str(model_id)\n\n"
+          \     try:\n            response = s3.list_objects_v2(Bucket=model_s3_bucket,\
+          \ Prefix=model_s3_key)\n            files = response.get(\"Contents\", [])\n\
+          \            print(f\"  Found {len(files)} files in S3\")\n            for\
+          \ obj in files[:5]:\n                print(f\"    - {obj['Key']}\")\n  \
+          \      except Exception as e:\n            print(f\"  WARNING: S3 verification\
+          \ failed: {e}\")\n\n    # Register to Model Registry\n    model_id = \"\
+          SKIPPED\"\n    if registry_address:\n        print(\"\\n[Registering to\
+          \ Model Registry...]\")\n\n        # Ensure address has scheme for client\
+          \ URL building\n        server_addr = registry_address\n        if not server_addr.startswith(\"\
+          http://\") and not server_addr.startswith(\"https://\"):\n            server_addr\
+          \ = f\"http://{server_addr}\"\n        # Create client (HTTP/insecure)\n\
+          \        client = ModelRegistry(\n            server_address=server_addr,\n\
+          \            port=registry_port,\n            author=author,\n         \
+          \   is_secure=False,  # HTTP\n        )\n\n        # Collect metrics into\
+          \ metadata if provided\n        version_metadata = {}\n        try:\n  \
+          \          if input_metrics and getattr(input_metrics, \"metadata\", None):\n\
+          \                version_metadata = dict(input_metrics.metadata)\n     \
+          \   except Exception:\n            version_metadata = {}\n\n        try:\n\
+          \            registered_model = client.register_model(\n               \
+          \ name=resolved_model_name,\n                uri=model_uri,\n          \
+          \      version=model_version,\n                model_format_name=model_format_name,\n\
+          \                model_format_version=model_format_version,\n          \
+          \      author=author,\n                owner=author,\n                description=model_description\
+          \ or f\"Registered via pipeline - {model_version}\",\n                metadata=version_metadata\
+          \ or None,\n            )\n            model_id = registered_model.id\n\
+          \            print(f\"  Registered model: {registered_model.name} (ID: {model_id})\"\
+          )\n        except StoreError as e:\n            msg = str(e)\n         \
+          \   if \"already exists\" in msg.lower():\n                print(f\"  Model\
+          \ version already exists; skipping create. Details: {msg}\")\n         \
+          \       model_id = f\"{resolved_model_name}:{model_version}\"\n        \
+          \    else:\n                raise\n\n    # Write to shared log\n    log_path\
+          \ = os.path.join(pvc_mount_path, shared_log_file)\n    with open(log_path,\
+          \ \"a\") as f:\n        f.write(f\"Model Registry: {model_name} v{model_version}\
+          \ (ID: {model_id})\\n\")\n    print(f\"\\n[Log written to {log_path}]\"\
+          )\n\n    print(\"\\n\" + \"=\" * 60)\n    print(f\"COMPLETE - Model ID:\
+          \ {model_id}\")\n    print(\"=\" * 60)\n\n    return str(model_id)\n\n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
     exec-training:
       container:
@@ -385,6 +400,8 @@ root:
           parameters:
             author:
               componentInputParameter: author
+            model_description:
+              componentInputParameter: model_description
             model_format_name:
               componentInputParameter: model_format_name
             model_format_version:
@@ -433,6 +450,10 @@ root:
     parameters:
       author:
         defaultValue: pipeline
+        isOptional: true
+        parameterType: STRING
+      model_description:
+        defaultValue: ''
         isOptional: true
         parameterType: STRING
       model_format_name:

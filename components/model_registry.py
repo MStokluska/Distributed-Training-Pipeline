@@ -12,6 +12,8 @@ from kfp import dsl
 )
 def model_registry(
     pvc_mount_path: str,
+    input_model: dsl.Input[dsl.Model] = None,
+    input_metrics: dsl.Input[dsl.Metrics] = None,
     model_s3_bucket: str = "",
     model_s3_key: str = "",
     model_s3_endpoint: str = "",
@@ -23,40 +25,40 @@ def model_registry(
     model_version: str = "1.0.0",
     model_format_name: str = "pytorch",
     model_format_version: str = "1.0",
+    model_description: str = "",
     author: str = "pipeline",
     shared_log_file: str = "pipeline_log.txt",
 ) -> str:
     """Register model to Kubeflow Model Registry.
-    
-    Args:
-        pvc_mount_path: Path to shared PVC.
-        model_s3_bucket: S3 bucket containing the model.
-        model_s3_key: S3 key/prefix for the model.
-        model_s3_endpoint: S3/MinIO endpoint URL.
-        model_s3_access_key: S3 access key.
-        model_s3_secret_key: S3 secret key.
-        registry_address: Model Registry server address (e.g., pipeline-test.rhoai-model-registries.svc).
-        registry_port: Model Registry port (default 8080 for HTTP).
-        model_name: Name for the registered model.
-        model_version: Version string for this model.
-        model_format_name: Model format (e.g., pytorch, tensorflow, onnx).
-        model_format_version: Model format version.
-        author: Author name for the model.
-        shared_log_file: Shared log file name.
-    
-    Returns:
-        Registered model ID.
+
+    Prefers the upstream model artifact (input_model) produced by training.
+    Falls back to S3 parameters when no model artifact is provided.
     """
     import os
+    import json
     from model_registry import ModelRegistry
+    from model_registry.exceptions import StoreError
 
     print("=" * 60)
     print("MODEL REGISTRY COMPONENT")
     print("=" * 60)
 
-    # Build model URI
-    model_uri = f"s3://{model_s3_bucket}/{model_s3_key}" if model_s3_bucket else f"pvc://{pvc_mount_path}/model"
-    print(f"\n  Model Name: {model_name}")
+    # Derive model URI and name from upstream artifact when available
+    resolved_model_name = model_name
+    model_uri = ""
+    if input_model:
+        # Prefer artifact_path metadata if present, else the artifact path
+        meta = getattr(input_model, "metadata", {}) or {}
+        resolved_model_name = meta.get("model_name", model_name)
+        model_uri = meta.get("artifact_path") or getattr(input_model, "path", "") or model_uri
+        if not model_uri:
+            model_uri = f"pvc://{pvc_mount_path}/model"
+    elif model_s3_bucket:
+        model_uri = f"s3://{model_s3_bucket}/{model_s3_key}"
+    else:
+        model_uri = f"pvc://{pvc_mount_path}/model"
+
+    print(f"\n  Model Name: {resolved_model_name}")
     print(f"  Model Version: {model_version}")
     print(f"  Model URI: {model_uri}")
     print(f"  Registry: {registry_address}:{registry_port}")
@@ -73,11 +75,14 @@ def model_registry(
             aws_secret_access_key=model_s3_secret_key,
             config=Config(signature_version="s3v4"),
         )
-        response = s3.list_objects_v2(Bucket=model_s3_bucket, Prefix=model_s3_key)
-        files = response.get("Contents", [])
-        print(f"  Found {len(files)} files in S3")
-        for obj in files[:5]:
-            print(f"    - {obj['Key']}")
+        try:
+            response = s3.list_objects_v2(Bucket=model_s3_bucket, Prefix=model_s3_key)
+            files = response.get("Contents", [])
+            print(f"  Found {len(files)} files in S3")
+            for obj in files[:5]:
+                print(f"    - {obj['Key']}")
+        except Exception as e:
+            print(f"  WARNING: S3 verification failed: {e}")
 
     # Register to Model Registry
     model_id = "SKIPPED"
@@ -95,20 +100,36 @@ def model_registry(
             author=author,
             is_secure=False,  # HTTP
         )
-        
-        # Register the model
-        registered_model = client.register_model(
-            name=model_name,
-            uri=model_uri,
-            version=model_version,
-            model_format_name=model_format_name,
-            model_format_version=model_format_version,
-            author=author,
-            description=f"Registered via pipeline - {model_version}",
-        )
-        
-        model_id = registered_model.id
-        print(f"  Registered model: {registered_model.name} (ID: {model_id})")
+
+        # Collect metrics into metadata if provided
+        version_metadata = {}
+        try:
+            if input_metrics and getattr(input_metrics, "metadata", None):
+                version_metadata = dict(input_metrics.metadata)
+        except Exception:
+            version_metadata = {}
+
+        try:
+            registered_model = client.register_model(
+                name=resolved_model_name,
+                uri=model_uri,
+                version=model_version,
+                model_format_name=model_format_name,
+                model_format_version=model_format_version,
+                author=author,
+                owner=author,
+                description=model_description or f"Registered via pipeline - {model_version}",
+                metadata=version_metadata or None,
+            )
+            model_id = registered_model.id
+            print(f"  Registered model: {registered_model.name} (ID: {model_id})")
+        except StoreError as e:
+            msg = str(e)
+            if "already exists" in msg.lower():
+                print(f"  Model version already exists; skipping create. Details: {msg}")
+                model_id = f"{resolved_model_name}:{model_version}"
+            else:
+                raise
 
     # Write to shared log
     log_path = os.path.join(pvc_mount_path, shared_log_file)

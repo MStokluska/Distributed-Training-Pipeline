@@ -121,6 +121,7 @@ def distributed_training_pipeline(
     model_version: str = "1.0.0",
     model_format_name: str = "pytorch",
     model_format_version: str = "1.0",
+    model_description: str = "",
     author: str = "pipeline",
 ):
     """Distributed Training Pipeline with shared workspace PVC.
@@ -232,6 +233,7 @@ def distributed_training_pipeline(
         model_version=model_version,
         model_format_name=model_format_name,
         model_format_version=model_format_version,
+        model_description=model_description,
         author=author,
         shared_log_file=shared_log_file,
     )
