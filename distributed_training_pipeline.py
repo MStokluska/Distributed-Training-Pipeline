@@ -104,16 +104,24 @@ def distributed_training_pipeline(
     # eval_inference_max_tokens: int = 256,  # Max tokens to generate
 
     # -------------------------------------------------------------------------
-    # Model Registry Parameters (EXAMPLE)
+    # S3 / Model location
     # -------------------------------------------------------------------------
-    # Model Metadata:
-    # registry_model_name: str = "my-model",  # Name for the registered model
-    # registry_model_version: str = "1.0.0",  # Model version
-    # registry_model_description: str = "",  # Model description
-    #
-    # Registry Connection:
-    # registry_connection_endpoint: str = "",  # Model registry endpoint URL
-    # registry_connection_token: str = "",  # Authentication token
+    model_s3_bucket: str = "",
+    model_s3_key: str = "",
+    model_s3_endpoint: str = "",
+    model_s3_access_key: str = "",
+    model_s3_secret_key: str = "",
+
+    # -------------------------------------------------------------------------
+    # Model Registry (SDK client)
+    # -------------------------------------------------------------------------
+    registry_address: str = "",
+    registry_port: int = 8080,
+    model_name: str = "fine-tuned-model",
+    model_version: str = "1.0.0",
+    model_format_name: str = "pytorch",
+    model_format_version: str = "1.0",
+    author: str = "pipeline",
 ):
     """Distributed Training Pipeline with shared workspace PVC.
 
@@ -213,6 +221,18 @@ def distributed_training_pipeline(
     #                         version=registry_model_version, endpoint=registry_endpoint, ...)
     model_registry_task = model_registry(
         pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
+        model_s3_bucket=model_s3_bucket,
+        model_s3_key=model_s3_key,
+        model_s3_endpoint=model_s3_endpoint,
+        model_s3_access_key=model_s3_access_key,
+        model_s3_secret_key=model_s3_secret_key,
+        registry_address=registry_address,
+        registry_port=registry_port,
+        model_name=model_name,
+        model_version=model_version,
+        model_format_name=model_format_name,
+        model_format_version=model_format_version,
+        author=author,
         shared_log_file=shared_log_file,
     )
     model_registry_task.set_caching_options(False)
