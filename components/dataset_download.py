@@ -23,6 +23,7 @@ def dataset_download(
     dataset_uri: str,
     pvc_mount_path: str,
     train_split_ratio: float = 0.9,
+    subset_count: int = 0,
     hf_token: str = "",
     shared_log_file: str = "pipeline_log.txt",
 ):
@@ -48,6 +49,8 @@ def dataset_download(
             provided via Kubernetes secret mounted as environment variables
         pvc_mount_path: Path where the shared PVC is mounted
         train_split_ratio: Ratio for train split (e.g., 0.9 for 90/10, 0.8 for 80/20)
+        subset_count: Number of examples to use (0 = use all). Useful for testing with
+            smaller datasets (e.g., 100 for quick tests, 1000 for validation runs)
         hf_token: HuggingFace token for gated/private datasets
         shared_log_file: Name of the shared log file
     """
@@ -279,6 +282,7 @@ def dataset_download(
     log_message("="*60)
     log_message(f"Dataset URI: {dataset_uri}")
     log_message(f"Train/Eval split: {train_split_ratio:.0%}/{1-train_split_ratio:.0%}")
+    log_message(f"Subset count: {subset_count if subset_count > 0 else 'all (no limit)'}")
 
     try:
         # Parse URI and determine source
@@ -297,6 +301,19 @@ def dataset_download(
             dataset = load_from_local(source_path)
         else:
             raise ValueError(f"Unknown source type: {source_type}")
+
+        # Apply subset if specified
+        if subset_count and subset_count > 0:
+            import random
+            original_size = len(dataset)
+            if subset_count < original_size:
+                log_message(f"Applying subset: {subset_count} of {original_size} examples")
+                random.seed(42)  # For reproducibility
+                subset_indices = random.sample(range(original_size), subset_count)
+                dataset = dataset.select(subset_indices)
+                log_message(f"Subset applied: {len(dataset)} examples selected")
+            else:
+                log_message(f"Subset count ({subset_count}) >= dataset size ({original_size}), using all examples")
 
         # Validate chat template format
         log_message("Validating chat template format...")

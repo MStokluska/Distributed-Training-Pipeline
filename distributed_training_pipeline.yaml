@@ -2,53 +2,56 @@
 # Name: dist-train
 # Description: Skeleton pipeline with 4 stages sharing a PVC: dataset download, training, lm-eval, model registry
 # Inputs:
-#    author: str [Default: 'pipeline']
-#    model_description: str [Default: '']
-#    model_format_name: str [Default: 'pytorch']
-#    model_format_version: str [Default: '1.0']
-#    model_name: str [Default: 'fine-tuned-model']
-#    model_s3_access_key: str [Default: '']
-#    model_s3_bucket: str [Default: '']
-#    model_s3_endpoint: str [Default: '']
-#    model_s3_key: str [Default: '']
-#    model_s3_secret_key: str [Default: '']
-#    model_version: str [Default: '1.0.0']
-#    registry_address: str [Default: '']
-#    registry_port: int [Default: 8080.0]
 #    dataset_hf_token: str [Default: '']
-#    dataset_train_split_ratio: float [Default: 0.9]
+#    dataset_split_ratio: float [Default: 0.9]
+#    dataset_subset_count: int [Default: 0.0]
 #    dataset_uri: str
+#    eval_cfg_batch_size: str [Default: 'auto']
+#    eval_cfg_limit: int [Default: -1.0]
+#    eval_cfg_log_samples: bool [Default: True]
+#    eval_cfg_verbosity: str [Default: 'INFO']
+#    eval_gen_kwargs: dict [Default: {}]
+#    eval_model_args: dict [Default: {}]
+#    eval_task_names: list [Default: ['arc_easy']]
+#    registry_address: str [Default: '']
+#    registry_model_author: str [Default: 'pipeline']
+#    registry_model_description: str [Default: '']
+#    registry_model_format_name: str [Default: 'pytorch']
+#    registry_model_format_version: str [Default: '1.0']
+#    registry_model_name: str [Default: 'fine-tuned-model']
+#    registry_model_version: str [Default: '1.0.0']
+#    registry_port: int [Default: 8080.0]
 #    shared_log_file: str [Default: 'pipeline_log.txt']
-#    training_accelerate_full_state_at_epoch: bool
-#    training_algorithm: str [Default: 'OSFT']
-#    training_backend: str [Default: 'mini-trainer']
-#    training_base_model: str [Default: 'Qwen/Qwen2.5-1.5B-Instruct']
-#    training_checkpoint_at_epoch: bool [Default: False]
-#    training_effective_batch_size: int [Default: 128.0]
-#    training_envs: str [Default: '']
-#    training_learning_rate: float [Default: 5e-06]
+#    training_env_annotations: str [Default: '']
+#    training_env_hf_token: str [Default: '']
+#    training_env_labels: str [Default: '']
+#    training_env_vars: str [Default: '']
+#    training_hyper_batch_size: int [Default: 128.0]
+#    training_hyper_epochs: int [Default: 1.0]
+#    training_hyper_learning_rate: float [Default: 5e-06]
+#    training_hyper_max_seq_len: int [Default: 8192.0]
+#    training_hyper_max_tokens_per_gpu: int [Default: 64000.0]
+#    training_hyper_seed: int [Default: 42.0]
+#    training_hyper_target_patterns: str [Default: '']
 #    training_lr_scheduler: str [Default: 'cosine']
 #    training_lr_scheduler_kwargs: str [Default: '']
 #    training_lr_warmup_steps: int [Default: 0.0]
-#    training_max_seq_len: int [Default: 8192.0]
-#    training_max_tokens_per_gpu: int [Default: 64000.0]
-#    training_metadata_annotations: str [Default: '']
-#    training_metadata_labels: str [Default: '']
-#    training_num_epochs: int [Default: 1.0]
-#    training_resource_cpu_per_worker: str [Default: '8']
-#    training_resource_gpu_per_worker: int [Default: 1.0]
-#    training_resource_memory_per_worker: str [Default: '32Gi']
-#    training_resource_num_procs_per_worker: int [Default: 1.0]
-#    training_resource_num_workers: int [Default: 1.0]
-#    training_resources_num_nodes: int [Default: 2.0]
-#    training_save_final_checkpoint: bool [Default: True]
-#    training_save_samples: int
-#    training_seed: int [Default: 42.0]
-#    training_target_patterns: str [Default: '']
-#    training_unfreeze_rank_ratio: float [Default: 0.25]
-#    training_unmask_messages: bool
-#    training_use_liger: bool [Default: True]
-#    training_use_processed_dataset: bool
+#    training_model_algorithm: str [Default: 'OSFT']
+#    training_model_backend: str [Default: 'mini-trainer']
+#    training_model_base: str [Default: 'Qwen/Qwen2.5-1.5B-Instruct']
+#    training_model_unfreeze_ratio: float [Default: 0.25]
+#    training_opt_processed_dataset: bool [Default: False]
+#    training_opt_unmask_messages: bool [Default: False]
+#    training_opt_use_liger: bool [Default: True]
+#    training_res_cpu: str [Default: '8']
+#    training_res_gpu: int [Default: 1.0]
+#    training_res_memory: str [Default: '32Gi']
+#    training_res_num_procs: int [Default: 1.0]
+#    training_res_num_workers: int [Default: 1.0]
+#    training_save_at_epoch: bool [Default: False]
+#    training_save_final: bool [Default: True]
+#    training_save_full_state: bool [Default: False]
+#    training_save_samples: int [Default: 0.0]
 components:
   comp-dataset-download:
     executorLabel: exec-dataset-download
@@ -78,6 +81,14 @@ components:
           description: Name of the shared log file
           isOptional: true
           parameterType: STRING
+        subset_count:
+          defaultValue: 0.0
+          description: 'Number of examples to use (0 = use all). Useful for testing
+            with
+
+            smaller datasets (e.g., 100 for quick tests, 1000 for validation runs)'
+          isOptional: true
+          parameterType: NUMBER_INTEGER
         train_split_ratio:
           defaultValue: 0.9
           description: Ratio for train split (e.g., 0.9 for 90/10, 0.8 for 80/20)
@@ -93,35 +104,33 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
-  comp-eval-lm-eval:
-    executorLabel: exec-eval-lm-eval
-    inputDefinitions:
-      parameters:
-        pvc_mount_path:
-          description: Path where the shared PVC is mounted.
-          parameterType: STRING
-        shared_log_file:
-          defaultValue: pipeline_log.txt
-          description: Name of the shared log file.
-          isOptional: true
-          parameterType: STRING
-    outputDefinitions:
-      parameters:
-        Output:
-          parameterType: STRING
   comp-model-registry:
     executorLabel: exec-model-registry
     inputDefinitions:
       artifacts:
+        eval_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          description: Evaluation metrics from lm-eval.
+          isOptional: true
+        eval_results:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+          description: Full evaluation results JSON artifact.
+          isOptional: true
         input_metrics:
           artifactType:
             schemaTitle: system.Metrics
             schemaVersion: 0.0.1
+          description: Training metrics.
           isOptional: true
         input_model:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+          description: Model artifact from training step.
           isOptional: true
       parameters:
         author:
@@ -142,26 +151,6 @@ components:
           parameterType: STRING
         model_name:
           defaultValue: fine-tuned-model
-          isOptional: true
-          parameterType: STRING
-        model_s3_access_key:
-          defaultValue: ''
-          isOptional: true
-          parameterType: STRING
-        model_s3_bucket:
-          defaultValue: ''
-          isOptional: true
-          parameterType: STRING
-        model_s3_endpoint:
-          defaultValue: ''
-          isOptional: true
-          parameterType: STRING
-        model_s3_key:
-          defaultValue: ''
-          isOptional: true
-          parameterType: STRING
-        model_s3_secret_key:
-          defaultValue: ''
           isOptional: true
           parameterType: STRING
         model_version:
@@ -249,6 +238,10 @@ components:
         training_envs:
           defaultValue: ''
           description: Comma-separated env overrides ("KEY=VAL,KEY=VAL").
+          isOptional: true
+          parameterType: STRING
+        training_hf_token:
+          defaultValue: ''
           isOptional: true
           parameterType: STRING
         training_learning_rate:
@@ -374,6 +367,64 @@ components:
       field: ENV
     - applyToTask: true
       field: KUBERNETES_VOLUMES
+  comp-universal-llm-evaluator:
+    executorLabel: exec-universal-llm-evaluator
+    inputDefinitions:
+      artifacts:
+        eval_dataset:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+          isOptional: true
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isOptional: true
+      parameters:
+        batch_size:
+          defaultValue: auto
+          isOptional: true
+          parameterType: STRING
+        gen_kwargs:
+          defaultValue: {}
+          isOptional: true
+          parameterType: STRUCT
+        limit:
+          defaultValue: -1.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        log_samples:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        model_args:
+          defaultValue: {}
+          isOptional: true
+          parameterType: STRUCT
+        model_path:
+          isOptional: true
+          parameterType: STRING
+        task_names:
+          parameterType: LIST
+        verbosity:
+          defaultValue: INFO
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        output_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+        output_results:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        output_samples:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
 deploymentSpec:
   executors:
     exec-dataset-download:
@@ -405,12 +456,12 @@ deploymentSpec:
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef dataset_download(\n    train_dataset: dsl.Output[dsl.Dataset],\n\
           \    eval_dataset: dsl.Output[dsl.Dataset],\n    dataset_uri: str,\n   \
-          \ pvc_mount_path: str,\n    train_split_ratio: float = 0.9,\n    hf_token:\
-          \ str = \"\",\n    shared_log_file: str = \"pipeline_log.txt\",\n):\n  \
-          \  \"\"\"Download and prepare datasets from multiple sources.\n\n    Validates\
-          \ that datasets follow chat template format (messages/conversations with\
-          \ role/content).\n\n    Args:\n        train_dataset: Output artifact for\
-          \ training dataset (JSONL format)\n        eval_dataset: Output artifact\
+          \ pvc_mount_path: str,\n    train_split_ratio: float = 0.9,\n    subset_count:\
+          \ int = 0,\n    hf_token: str = \"\",\n    shared_log_file: str = \"pipeline_log.txt\"\
+          ,\n):\n    \"\"\"Download and prepare datasets from multiple sources.\n\n\
+          \    Validates that datasets follow chat template format (messages/conversations\
+          \ with role/content).\n\n    Args:\n        train_dataset: Output artifact\
+          \ for training dataset (JSONL format)\n        eval_dataset: Output artifact\
           \ for evaluation dataset (JSONL format)\n        dataset_uri: Dataset URI\
           \ with scheme. Supported formats:\n            - HuggingFace: hf://dataset-name\
           \ or dataset-name\n            - AWS S3: s3://bucket/path/file.jsonl\n \
@@ -424,19 +475,21 @@ deploymentSpec:
           \ must be\n            provided via Kubernetes secret mounted as environment\
           \ variables\n        pvc_mount_path: Path where the shared PVC is mounted\n\
           \        train_split_ratio: Ratio for train split (e.g., 0.9 for 90/10,\
-          \ 0.8 for 80/20)\n        hf_token: HuggingFace token for gated/private\
-          \ datasets\n        shared_log_file: Name of the shared log file\n    \"\
-          \"\"\n    import os\n    from datasets import Dataset, load_dataset\n\n\
-          \    def log_message(msg: str):\n        \"\"\"Log message to console and\
-          \ shared log file.\"\"\"\n        print(msg)\n        log_path = os.path.join(pvc_mount_path,\
-          \ shared_log_file)\n        with open(log_path, \"a\") as f:\n         \
-          \   f.write(msg + \"\\n\")\n\n    def parse_uri(uri: str) -> tuple[str,\
-          \ str]:\n        \"\"\"Parse dataset URI to determine source type and path.\n\
-          \n        Args:\n            uri: Dataset URI with scheme. Supported formats:\n\
-          \                - HuggingFace: hf://dataset-name or dataset-name\n    \
-          \            - S3/MinIO: s3://bucket/path/to/file.jsonl\n              \
-          \  - HTTP/HTTPS: http://... or https://... (e.g., MinIO shared links)\n\
-          \                - Local/PVC: pvc://path/to/file.jsonl or /absolute/path/to/file.jsonl\n\
+          \ 0.8 for 80/20)\n        subset_count: Number of examples to use (0 = use\
+          \ all). Useful for testing with\n            smaller datasets (e.g., 100\
+          \ for quick tests, 1000 for validation runs)\n        hf_token: HuggingFace\
+          \ token for gated/private datasets\n        shared_log_file: Name of the\
+          \ shared log file\n    \"\"\"\n    import os\n    from datasets import Dataset,\
+          \ load_dataset\n\n    def log_message(msg: str):\n        \"\"\"Log message\
+          \ to console and shared log file.\"\"\"\n        print(msg)\n        log_path\
+          \ = os.path.join(pvc_mount_path, shared_log_file)\n        with open(log_path,\
+          \ \"a\") as f:\n            f.write(msg + \"\\n\")\n\n    def parse_uri(uri:\
+          \ str) -> tuple[str, str]:\n        \"\"\"Parse dataset URI to determine\
+          \ source type and path.\n\n        Args:\n            uri: Dataset URI with\
+          \ scheme. Supported formats:\n                - HuggingFace: hf://dataset-name\
+          \ or dataset-name\n                - S3/MinIO: s3://bucket/path/to/file.jsonl\n\
+          \                - HTTP/HTTPS: http://... or https://... (e.g., MinIO shared\
+          \ links)\n                - Local/PVC: pvc://path/to/file.jsonl or /absolute/path/to/file.jsonl\n\
           \n        Returns:\n            Tuple of (source_type, path) where source_type\
           \ is 'hf', 's3', 'http', or 'local'\n        \"\"\"\n        uri = uri.strip()\n\
           \n        # Check for explicit schemes\n        if uri.startswith(\"http://\"\
@@ -553,38 +606,48 @@ deploymentSpec:
           \n    log_message(\"=\"*60)\n    log_message(\"Dataset Download Component\
           \ Started\")\n    log_message(\"=\"*60)\n    log_message(f\"Dataset URI:\
           \ {dataset_uri}\")\n    log_message(f\"Train/Eval split: {train_split_ratio:.0%}/{1-train_split_ratio:.0%}\"\
-          )\n\n    try:\n        # Parse URI and determine source\n        source_type,\
-          \ source_path = parse_uri(dataset_uri)\n        log_message(f\"Source type:\
-          \ {source_type}\")\n        log_message(f\"Source path: {source_path}\"\
+          )\n    log_message(f\"Subset count: {subset_count if subset_count > 0 else\
+          \ 'all (no limit)'}\")\n\n    try:\n        # Parse URI and determine source\n\
+          \        source_type, source_path = parse_uri(dataset_uri)\n        log_message(f\"\
+          Source type: {source_type}\")\n        log_message(f\"Source path: {source_path}\"\
           )\n\n        # Download/load dataset based on source\n        if source_type\
           \ == \"hf\":\n            dataset = download_from_huggingface(source_path)\n\
           \        elif source_type == \"s3\":\n            dataset = download_from_s3(source_path)\n\
           \        elif source_type == \"http\":\n            dataset = download_from_http(source_path)\n\
           \        elif source_type == \"local\":\n            dataset = load_from_local(source_path)\n\
           \        else:\n            raise ValueError(f\"Unknown source type: {source_type}\"\
-          )\n\n        # Validate chat template format\n        log_message(\"Validating\
-          \ chat template format...\")\n        validate_chat_format_dataset(dataset)\n\
-          \n        # Split dataset using built-in method\n        log_message(f\"\
-          Splitting dataset with {len(dataset)} examples...\")\n        split_dataset\
-          \ = dataset.train_test_split(\n            test_size=1 - train_split_ratio,\n\
-          \            seed=42\n        )\n\n        train_ds = split_dataset[\"train\"\
-          ]\n        eval_ds = split_dataset[\"test\"]\n\n        log_message(f\"\
-          Split complete: {len(train_ds)} train, {len(eval_ds)} eval\")\n\n      \
-          \  # Save datasets as JSONL files to KFP artifacts\n        log_message(f\"\
-          Saving train dataset to {train_dataset.path}\")\n        train_ds.to_json(train_dataset.path,\
-          \ orient='records', lines=True)\n\n        log_message(f\"Saving eval dataset\
-          \ to {eval_dataset.path}\")\n        eval_ds.to_json(eval_dataset.path,\
-          \ orient='records', lines=True)\n\n        # Also save to shared PVC for\
-          \ next pipeline step\n        pvc_dataset_dir = os.path.join(pvc_mount_path,\
-          \ \"datasets\")\n        os.makedirs(pvc_dataset_dir, exist_ok=True)\n\n\
-          \        pvc_train_path = os.path.join(pvc_dataset_dir, \"train.jsonl\"\
-          )\n        pvc_eval_path = os.path.join(pvc_dataset_dir, \"eval.jsonl\"\
-          )\n\n        log_message(f\"Saving train dataset to PVC: {pvc_train_path}\"\
-          )\n        train_ds.to_json(pvc_train_path, orient='records', lines=True)\n\
-          \n        log_message(f\"Saving eval dataset to PVC: {pvc_eval_path}\")\n\
-          \        eval_ds.to_json(pvc_eval_path, orient='records', lines=True)\n\n\
-          \        # Save metadata\n        train_dataset.metadata = {\n         \
-          \   \"dataset_uri\": dataset_uri,\n            \"num_examples\": len(train_ds),\n\
+          )\n\n        # Apply subset if specified\n        if subset_count and subset_count\
+          \ > 0:\n            import random\n            original_size = len(dataset)\n\
+          \            if subset_count < original_size:\n                log_message(f\"\
+          Applying subset: {subset_count} of {original_size} examples\")\n       \
+          \         random.seed(42)  # For reproducibility\n                subset_indices\
+          \ = random.sample(range(original_size), subset_count)\n                dataset\
+          \ = dataset.select(subset_indices)\n                log_message(f\"Subset\
+          \ applied: {len(dataset)} examples selected\")\n            else:\n    \
+          \            log_message(f\"Subset count ({subset_count}) >= dataset size\
+          \ ({original_size}), using all examples\")\n\n        # Validate chat template\
+          \ format\n        log_message(\"Validating chat template format...\")\n\
+          \        validate_chat_format_dataset(dataset)\n\n        # Split dataset\
+          \ using built-in method\n        log_message(f\"Splitting dataset with {len(dataset)}\
+          \ examples...\")\n        split_dataset = dataset.train_test_split(\n  \
+          \          test_size=1 - train_split_ratio,\n            seed=42\n     \
+          \   )\n\n        train_ds = split_dataset[\"train\"]\n        eval_ds =\
+          \ split_dataset[\"test\"]\n\n        log_message(f\"Split complete: {len(train_ds)}\
+          \ train, {len(eval_ds)} eval\")\n\n        # Save datasets as JSONL files\
+          \ to KFP artifacts\n        log_message(f\"Saving train dataset to {train_dataset.path}\"\
+          )\n        train_ds.to_json(train_dataset.path, orient='records', lines=True)\n\
+          \n        log_message(f\"Saving eval dataset to {eval_dataset.path}\")\n\
+          \        eval_ds.to_json(eval_dataset.path, orient='records', lines=True)\n\
+          \n        # Also save to shared PVC for next pipeline step\n        pvc_dataset_dir\
+          \ = os.path.join(pvc_mount_path, \"datasets\")\n        os.makedirs(pvc_dataset_dir,\
+          \ exist_ok=True)\n\n        pvc_train_path = os.path.join(pvc_dataset_dir,\
+          \ \"train.jsonl\")\n        pvc_eval_path = os.path.join(pvc_dataset_dir,\
+          \ \"eval.jsonl\")\n\n        log_message(f\"Saving train dataset to PVC:\
+          \ {pvc_train_path}\")\n        train_ds.to_json(pvc_train_path, orient='records',\
+          \ lines=True)\n\n        log_message(f\"Saving eval dataset to PVC: {pvc_eval_path}\"\
+          )\n        eval_ds.to_json(pvc_eval_path, orient='records', lines=True)\n\
+          \n        # Save metadata\n        train_dataset.metadata = {\n        \
+          \    \"dataset_uri\": dataset_uri,\n            \"num_examples\": len(train_ds),\n\
           \            \"split\": \"train\",\n            \"train_split_ratio\": train_split_ratio,\n\
           \            \"artifact_path\": train_dataset.path,\n            \"pvc_path\"\
           : pvc_train_path,\n        }\n\n        eval_dataset.metadata = {\n    \
@@ -601,44 +664,6 @@ deploymentSpec:
           \ Exception as e:\n        error_msg = f\"ERROR in dataset download: {str(e)}\"\
           \n        log_message(error_msg)\n        raise\n\n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
-    exec-eval-lm-eval:
-      container:
-        args:
-        - --executor_input
-        - '{{$}}'
-        - --function_to_execute
-        - eval_lm_eval
-        command:
-        - sh
-        - -c
-        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
-          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
-          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
-          $0\" \"$@\"\n"
-        - sh
-        - -ec
-        - 'program_path=$(mktemp -d)
-
-
-          printf "%s" "$0" > "$program_path/ephemeral_component.py"
-
-          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
-
-          '
-        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef eval_lm_eval(\n    pvc_mount_path: str,\n    shared_log_file:\
-          \ str = \"pipeline_log.txt\",\n) -> str:\n    \"\"\"Evaluate model using\
-          \ lm-eval.\n\n    This skeleton component writes a hello world message to\
-          \ a shared file on the PVC.\n\n    Args:\n        pvc_mount_path: Path where\
-          \ the shared PVC is mounted.\n        shared_log_file: Name of the shared\
-          \ log file.\n\n    Returns:\n        Status message.\n    \"\"\"\n    import\
-          \ os\n\n    message = \"Hello world from eval with lm-eval\"\n    print(message)\n\
-          \n    # Write to shared file on PVC\n    log_path = os.path.join(pvc_mount_path,\
-          \ shared_log_file)\n    with open(log_path, \"a\") as f:\n        f.write(message\
-          \ + \"\\n\")\n\n    print(f\"Message written to {log_path}\")\n    return\
-          \ \"eval_lm_eval completed\"\n\n"
-        image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
     exec-model-registry:
       container:
         args:
@@ -651,7 +676,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'boto3' 'model-registry==0.2.10'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'model-registry==0.2.10'\
           \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
           $0\" \"$@\"\n"
@@ -667,64 +692,89 @@ deploymentSpec:
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
           \ *\n\ndef model_registry(\n    pvc_mount_path: str,\n    input_model: dsl.Input[dsl.Model]\
-          \ = None,\n    input_metrics: dsl.Input[dsl.Metrics] = None,\n    model_s3_bucket:\
-          \ str = \"\",\n    model_s3_key: str = \"\",\n    model_s3_endpoint: str\
-          \ = \"\",\n    model_s3_access_key: str = \"\",\n    model_s3_secret_key:\
-          \ str = \"\",\n    registry_address: str = \"\",\n    registry_port: int\
-          \ = 8080,\n    model_name: str = \"fine-tuned-model\",\n    model_version:\
-          \ str = \"1.0.0\",\n    model_format_name: str = \"pytorch\",\n    model_format_version:\
+          \ = None,\n    input_metrics: dsl.Input[dsl.Metrics] = None,\n    eval_metrics:\
+          \ dsl.Input[dsl.Metrics] = None,\n    eval_results: dsl.Input[dsl.Artifact]\
+          \ = None,\n    registry_address: str = \"\",\n    registry_port: int = 8080,\n\
+          \    model_name: str = \"fine-tuned-model\",\n    model_version: str = \"\
+          1.0.0\",\n    model_format_name: str = \"pytorch\",\n    model_format_version:\
           \ str = \"1.0\",\n    model_description: str = \"\",\n    author: str =\
           \ \"pipeline\",\n    shared_log_file: str = \"pipeline_log.txt\",\n) ->\
-          \ str:\n    \"\"\"Register model to Kubeflow Model Registry.\n\n    Prefers\
-          \ the upstream model artifact (input_model) produced by training.\n    Falls\
-          \ back to S3 parameters when no model artifact is provided.\n    \"\"\"\n\
-          \    import os\n    import json\n    from model_registry import ModelRegistry\n\
-          \    from model_registry.exceptions import StoreError\n\n    print(\"=\"\
-          \ * 60)\n    print(\"MODEL REGISTRY COMPONENT\")\n    print(\"=\" * 60)\n\
-          \n    # Derive model URI and name from upstream artifact when available\n\
-          \    resolved_model_name = model_name\n    model_uri = \"\"\n    if input_model:\n\
-          \        # Prefer artifact_path metadata if present, else the artifact path\n\
-          \        meta = getattr(input_model, \"metadata\", {}) or {}\n        resolved_model_name\
-          \ = meta.get(\"model_name\", model_name)\n        model_uri = meta.get(\"\
-          artifact_path\") or getattr(input_model, \"path\", \"\") or model_uri\n\
-          \        if not model_uri:\n            model_uri = f\"pvc://{pvc_mount_path}/model\"\
-          \n    elif model_s3_bucket:\n        model_uri = f\"s3://{model_s3_bucket}/{model_s3_key}\"\
-          \n    else:\n        model_uri = f\"pvc://{pvc_mount_path}/model\"\n\n \
-          \   print(f\"\\n  Model Name: {resolved_model_name}\")\n    print(f\"  Model\
-          \ Version: {model_version}\")\n    print(f\"  Model URI: {model_uri}\")\n\
-          \    print(f\"  Registry: {registry_address}:{registry_port}\")\n\n    #\
-          \ Verify S3 model exists\n    if model_s3_bucket and model_s3_access_key\
-          \ and model_s3_secret_key:\n        print(\"\\n[Verifying S3 model...]\"\
-          )\n        import boto3\n        from botocore.client import Config\n  \
-          \      s3 = boto3.client(\n            \"s3\",\n            endpoint_url=model_s3_endpoint,\n\
-          \            aws_access_key_id=model_s3_access_key,\n            aws_secret_access_key=model_s3_secret_key,\n\
-          \            config=Config(signature_version=\"s3v4\"),\n        )\n   \
-          \     try:\n            response = s3.list_objects_v2(Bucket=model_s3_bucket,\
-          \ Prefix=model_s3_key)\n            files = response.get(\"Contents\", [])\n\
-          \            print(f\"  Found {len(files)} files in S3\")\n            for\
-          \ obj in files[:5]:\n                print(f\"    - {obj['Key']}\")\n  \
-          \      except Exception as e:\n            print(f\"  WARNING: S3 verification\
-          \ failed: {e}\")\n\n    # Register to Model Registry\n    model_id = \"\
-          SKIPPED\"\n    if registry_address:\n        print(\"\\n[Registering to\
-          \ Model Registry...]\")\n\n        # Ensure address has scheme for client\
-          \ URL building\n        server_addr = registry_address\n        if not server_addr.startswith(\"\
+          \ str:\n    \"\"\"Register model to Kubeflow Model Registry.\n\n    Uses\
+          \ the upstream model artifact (input_model) produced by training,\n    or\
+          \ falls back to PVC path if no artifact is provided.\n\n    Args:\n    \
+          \    input_model: Model artifact from training step.\n        input_metrics:\
+          \ Training metrics.\n        eval_metrics: Evaluation metrics from lm-eval.\n\
+          \        eval_results: Full evaluation results JSON artifact.\n    \"\"\"\
+          \n    import os\n    from model_registry import ModelRegistry\n    from\
+          \ model_registry.exceptions import StoreError\n\n    print(\"=\" * 60)\n\
+          \    print(\"MODEL REGISTRY COMPONENT\")\n    print(\"=\" * 60)\n\n    #\
+          \ Derive model URI from upstream artifact; use user-provided name (prioritize\
+          \ user input)\n    resolved_model_name = model_name  # User's parameter\
+          \ takes precedence\n    model_uri = \"\"\n    base_model_name = None\n \
+          \   if input_model:\n        meta = getattr(input_model, \"metadata\", {})\
+          \ or {}\n        base_model_name = meta.get(\"model_name\")  # e.g., \"\
+          Qwen/Qwen2.5-1.5B-Instruct\"\n        # Only use metadata name if user didn't\
+          \ provide one (kept default)\n        if model_name == \"fine-tuned-model\"\
+          \ and base_model_name:\n            resolved_model_name = base_model_name\n\
+          \        model_uri = meta.get(\"artifact_path\") or getattr(input_model,\
+          \ \"path\", \"\") or model_uri\n        if not model_uri:\n            model_uri\
+          \ = f\"pvc://{pvc_mount_path}/final_model\"\n    else:\n        model_uri\
+          \ = f\"pvc://{pvc_mount_path}/final_model\"\n\n    print(f\"\\n  Model Name:\
+          \ {resolved_model_name}\")\n    if base_model_name:\n        print(f\" \
+          \ Base Model: {base_model_name}\")\n    print(f\"  Model Version: {model_version}\"\
+          )\n    print(f\"  Model URI: {model_uri}\")\n    print(f\"  Registry: {registry_address}:{registry_port}\"\
+          )\n\n    # Register to Model Registry\n    model_id = \"SKIPPED\"\n    if\
+          \ registry_address:\n        print(\"\\n[Registering to Model Registry...]\"\
+          )\n\n        # Ensure address has scheme for client URL building\n     \
+          \   server_addr = registry_address\n        if not server_addr.startswith(\"\
           http://\") and not server_addr.startswith(\"https://\"):\n            server_addr\
           \ = f\"http://{server_addr}\"\n        # Create client (HTTP/insecure)\n\
           \        client = ModelRegistry(\n            server_address=server_addr,\n\
           \            port=registry_port,\n            author=author,\n         \
           \   is_secure=False,  # HTTP\n        )\n\n        # Collect metrics into\
-          \ metadata if provided\n        version_metadata = {}\n        try:\n  \
-          \          if input_metrics and getattr(input_metrics, \"metadata\", None):\n\
-          \                version_metadata = dict(input_metrics.metadata)\n     \
-          \   except Exception:\n            version_metadata = {}\n\n        try:\n\
-          \            registered_model = client.register_model(\n               \
-          \ name=resolved_model_name,\n                uri=model_uri,\n          \
-          \      version=model_version,\n                model_format_name=model_format_name,\n\
-          \                model_format_version=model_format_version,\n          \
-          \      author=author,\n                owner=author,\n                description=model_description\
-          \ or f\"Registered via pipeline - {model_version}\",\n                metadata=version_metadata\
-          \ or None,\n            )\n            model_id = registered_model.id\n\
-          \            print(f\"  Registered model: {registered_model.name} (ID: {model_id})\"\
+          \ metadata if provided\n        version_metadata = {}\n        eval_summary\
+          \ = {}\n        try:\n            # Add base model info\n            if\
+          \ base_model_name:\n                version_metadata[\"base_model\"] = base_model_name\n\
+          \n            # Add training metrics (hyperparameters)\n            if input_metrics\
+          \ and getattr(input_metrics, \"metadata\", None):\n                print(\"\
+          \\n  Training Hyperparameters:\")\n                for k, v in input_metrics.metadata.items():\n\
+          \                    if k not in (\"display_name\", \"store_session_info\"\
+          ):\n                        version_metadata[f\"training_{k}\"] = str(v)\n\
+          \                        print(f\"    - {k}: {v}\")\n\n            # Add\
+          \ evaluation metrics\n            if eval_metrics and getattr(eval_metrics,\
+          \ \"metadata\", None):\n                print(\"\\n  Evaluation Metrics:\"\
+          )\n                for k, v in eval_metrics.metadata.items():\n        \
+          \            if k not in (\"display_name\", \"store_session_info\"):\n \
+          \                       version_metadata[f\"eval_{k}\"] = str(v)\n     \
+          \                   # Extract primary accuracy metrics for summary\n   \
+          \                     if \"_acc,\" in k or \"_acc_norm,\" in k:\n      \
+          \                      if \"stderr\" not in k:\n                       \
+          \         eval_summary[k] = v\n                                print(f\"\
+          \    - {k}: {v:.4f}\" if isinstance(v, float) else f\"    - {k}: {v}\")\n\
+          \n                # Print eval config\n                eval_tasks = eval_metrics.metadata.get(\"\
+          eval_tasks\", \"\")\n                eval_duration = eval_metrics.metadata.get(\"\
+          eval_duration_seconds\", \"\")\n                if eval_tasks:\n       \
+          \             print(f\"    - Tasks: {eval_tasks}\")\n                if\
+          \ eval_duration:\n                    print(f\"    - Duration: {eval_duration}s\"\
+          )\n\n            # Add summary of best metrics\n            if eval_summary:\n\
+          \                # Find the best accuracy metric\n                best_metric\
+          \ = max(eval_summary.items(), key=lambda x: x[1] if isinstance(x[1], (int,\
+          \ float)) else 0)\n                version_metadata[\"eval_best_metric\"\
+          ] = best_metric[0]\n                version_metadata[\"eval_best_score\"\
+          ] = str(best_metric[1])\n                print(f\"\\n  Best Eval Score:\
+          \ {best_metric[0]} = {best_metric[1]:.4f}\" if isinstance(best_metric[1],\
+          \ float) else f\"\\n  Best: {best_metric}\")\n\n            print(f\"\\\
+          n  Total metadata keys: {len(version_metadata)}\")\n        except Exception\
+          \ as e:\n            print(f\"  Warning: Could not extract metrics: {e}\"\
+          )\n            version_metadata = {}\n\n        try:\n            registered_model\
+          \ = client.register_model(\n                name=resolved_model_name,\n\
+          \                uri=model_uri,\n                version=model_version,\n\
+          \                model_format_name=model_format_name,\n                model_format_version=model_format_version,\n\
+          \                author=author,\n                owner=author,\n       \
+          \         description=model_description or f\"Registered via pipeline -\
+          \ {model_version}\",\n                metadata=version_metadata or None,\n\
+          \            )\n            model_id = registered_model.id\n           \
+          \ print(f\"  Registered model: {registered_model.name} (ID: {model_id})\"\
           )\n        except StoreError as e:\n            msg = str(e)\n         \
           \   if \"already exists\" in msg.lower():\n                print(f\"  Model\
           \ version already exists; skipping create. Details: {msg}\")\n         \
@@ -783,37 +833,39 @@ deploymentSpec:
           \   training_lr_scheduler_kwargs: str = \"\",\n    training_checkpoint_at_epoch:\
           \ Optional[bool] = None,\n    training_save_final_checkpoint: Optional[bool]\
           \ = None,\n    training_num_epochs: Optional[int] = None,\n    training_data_output_dir:\
-          \ Optional[str] = None,\n    # Env overrides: \"KEY=VAL,KEY=VAL\"\n    training_envs:\
-          \ str = \"\",\n    # Resource and runtime parameters (per worker/pod)\n\
-          \    training_resource_cpu_per_worker: str = \"8\",\n    training_resource_gpu_per_worker:\
-          \ int = 1,\n    training_resource_memory_per_worker: str = \"32Gi\",\n \
-          \   training_resource_num_procs_per_worker: int = 1,\n    training_resource_num_workers:\
-          \ int = 1,\n    training_metadata_labels: str = \"\",\n    training_metadata_annotations:\
-          \ str = \"\",\n    # KFP TaskConfig passthrough for volumes/env/resources,\
-          \ etc.\n    kubernetes_config: dsl.TaskConfig = None,\n) -> str:\n    \"\
-          \"\"Perform model training (inline) using PVC workspace and TrainingHub\
-          \ runtime.\n\n    Args:\n        pvc_path: Root of the workspace PVC for\
-          \ this run.\n        dataset: Input dataset artifact (preferred). If not\
-          \ present, this component\n            will attempt to load from a remote\
-          \ path specified in dataset.metadata.\n            - metadata[\"artifact_path\"\
-          ]: remote dataset path (e.g., s3://..., https://..., or HF repo id)\n  \
-          \          - metadata[\"pvc_dir\"]: pre-staged PVC directory to use if present\n\
-          \        training_base_model: HuggingFace model ID to fine-tune (e.g., \"\
-          Qwen/Qwen2.5-1.5B-Instruct\").\n\n        training_algorithm: Training algorithm\
-          \ (\"OSFT\" | \"SFT\"). OSFT adds continual learning support.\n        training_effective_batch_size:\
-          \ Per-step batch size. Guidance:\n            - 1 GPU: 16\u201332\n    \
-          \        - 2 GPUs: 32\u201364\n            - 4 GPUs: 64\u2013128\n     \
-          \   training_max_tokens_per_gpu: Token budget per GPU for memory mgmt.\n\
-          \        training_max_seq_len: Max sequence length (typical 2048\u20138192).\n\
-          \        training_learning_rate: Learning rate (typ. 1e-6 to 1e-4; 5e-6\
-          \ is a good OSFT default).\n        training_backend: Trainer backend variant\
-          \ (e.g., \"mini-trainer\").\n        training_target_patterns: Comma-separated\
-          \ target modules/patterns (algorithm-specific).\n        training_seed:\
-          \ Random seed for reproducibility.\n        training_use_liger: Enable Liger\
-          \ kernel optimizations (image must include kernels).\n        training_use_processed_dataset:\
-          \ Whether dataset is already processed.\n        training_unmask_messages:\
-          \ Whether to unmask chat messages if applicable.\n        training_lr_scheduler:\
-          \ LR scheduler (\"cosine\" | \"linear\" | \"constant\").\n        training_lr_warmup_steps:\
+          \ Optional[str] = None,\n    # HuggingFace token for gated models (optional\
+          \ - leave empty if not needed)\n    training_hf_token: str = \"\",\n   \
+          \ # Env overrides: \"KEY=VAL,KEY=VAL\"\n    training_envs: str = \"\",\n\
+          \    # Resource and runtime parameters (per worker/pod)\n    training_resource_cpu_per_worker:\
+          \ str = \"8\",\n    training_resource_gpu_per_worker: int = 1,\n    training_resource_memory_per_worker:\
+          \ str = \"32Gi\",\n    training_resource_num_procs_per_worker: int = 1,\n\
+          \    training_resource_num_workers: int = 1,\n    training_metadata_labels:\
+          \ str = \"\",\n    training_metadata_annotations: str = \"\",\n    # KFP\
+          \ TaskConfig passthrough for volumes/env/resources, etc.\n    kubernetes_config:\
+          \ dsl.TaskConfig = None,\n) -> str:\n    \"\"\"Perform model training (inline)\
+          \ using PVC workspace and TrainingHub runtime.\n\n    Args:\n        pvc_path:\
+          \ Root of the workspace PVC for this run.\n        dataset: Input dataset\
+          \ artifact (preferred). If not present, this component\n            will\
+          \ attempt to load from a remote path specified in dataset.metadata.\n  \
+          \          - metadata[\"artifact_path\"]: remote dataset path (e.g., s3://...,\
+          \ https://..., or HF repo id)\n            - metadata[\"pvc_dir\"]: pre-staged\
+          \ PVC directory to use if present\n        training_base_model: HuggingFace\
+          \ model ID to fine-tune (e.g., \"Qwen/Qwen2.5-1.5B-Instruct\").\n\n    \
+          \    training_algorithm: Training algorithm (\"OSFT\" | \"SFT\"). OSFT adds\
+          \ continual learning support.\n        training_effective_batch_size: Per-step\
+          \ batch size. Guidance:\n            - 1 GPU: 16\u201332\n            -\
+          \ 2 GPUs: 32\u201364\n            - 4 GPUs: 64\u2013128\n        training_max_tokens_per_gpu:\
+          \ Token budget per GPU for memory mgmt.\n        training_max_seq_len: Max\
+          \ sequence length (typical 2048\u20138192).\n        training_learning_rate:\
+          \ Learning rate (typ. 1e-6 to 1e-4; 5e-6 is a good OSFT default).\n    \
+          \    training_backend: Trainer backend variant (e.g., \"mini-trainer\").\n\
+          \        training_target_patterns: Comma-separated target modules/patterns\
+          \ (algorithm-specific).\n        training_seed: Random seed for reproducibility.\n\
+          \        training_use_liger: Enable Liger kernel optimizations (image must\
+          \ include kernels).\n        training_use_processed_dataset: Whether dataset\
+          \ is already processed.\n        training_unmask_messages: Whether to unmask\
+          \ chat messages if applicable.\n        training_lr_scheduler: LR scheduler\
+          \ (\"cosine\" | \"linear\" | \"constant\").\n        training_lr_warmup_steps:\
           \ LR warmup steps (0 for none).\n        training_save_samples: Number of\
           \ samples to save during SFT (optional).\n        training_accelerate_full_state_at_epoch:\
           \ Whether to save full Accelerate state at each epoch (optional).\n    \
@@ -868,25 +920,37 @@ deploymentSpec:
           \ - %(message)s\"))\n            _logger.addHandler(_ch)\n        return\
           \ _logger\n\n    logger = _setup_logger()\n    logger.info(\"Initializing\
           \ training component\")\n    logger.info(f\"pvc_path={pvc_path}, model_name={training_base_model}\"\
-          )\n\n    # ------------------------------\n    # Utility: latest checkpoint\n\
-          \    # ------------------------------\n    def find_most_recent_checkpoint(checkpoints_root:\
-          \ str) -> _Optional[str]:\n        if not os.path.isdir(checkpoints_root):\n\
-          \            return None\n        latest: _Optional[Tuple[float, str]] =\
-          \ None\n        for entry in os.listdir(checkpoints_root):\n           \
-          \ full = os.path.join(checkpoints_root, entry)\n            if os.path.isdir(full):\n\
-          \                try:\n                    mtime = os.path.getmtime(full)\n\
-          \                except OSError:\n                    continue\n       \
-          \         if latest is None or mtime > latest[0]:\n                    latest\
-          \ = (mtime, full)\n        return latest[1] if latest else None\n\n    #\
-          \ ------------------------------\n    # Kubernetes connection\n    # ------------------------------\n\
-          \    def _init_k8s_client() -> _Optional[\"k8s_client.ApiClient\"]:\n  \
-          \      \"\"\"Initialize and return a Kubernetes client from env (server/token)\
-          \ or in-cluster/kubeconfig.\"\"\"\n        try:\n            from kubernetes\
-          \ import client as k8s_client, config as k8s_config\n            env_server\
-          \ = os.environ.get(\"KUBERNETES_SERVER_URL\", \"\").strip()\n          \
-          \  env_token = os.environ.get(\"KUBERNETES_AUTH_TOKEN\", \"\").strip()\n\
-          \            if env_server and env_token:\n                logger.info(\"\
-          Configuring Kubernetes client from env (KUBERNETES_SERVER_URL/_AUTH_TOKEN)\"\
+          )\n\n    # ------------------------------\n    # Utility: find model directory\
+          \ (with config.json)\n    # ------------------------------\n    def find_model_directory(checkpoints_root:\
+          \ str) -> _Optional[str]:\n        \"\"\"Find the actual model directory\
+          \ containing config.json.\n\n        Searches recursively for a directory\
+          \ with config.json, prioritizing\n        the most recently modified one.\
+          \ Handles nested checkpoint structures\n        like: checkpoints/epoch-1/samples_90.0/config.json\n\
+          \        \"\"\"\n        if not os.path.isdir(checkpoints_root):\n     \
+          \       return None\n\n        candidates: list = []\n        for root,\
+          \ dirs, files in os.walk(checkpoints_root):\n            if \"config.json\"\
+          \ in files:\n                try:\n                    mtime = os.path.getmtime(os.path.join(root,\
+          \ \"config.json\"))\n                    candidates.append((mtime, root))\n\
+          \                except OSError:\n                    continue\n\n     \
+          \   if not candidates:\n            # Fallback: return most recent top-level\
+          \ directory\n            latest: _Optional[Tuple[float, str]] = None\n \
+          \           for entry in os.listdir(checkpoints_root):\n               \
+          \ full = os.path.join(checkpoints_root, entry)\n                if os.path.isdir(full):\n\
+          \                    try:\n                        mtime = os.path.getmtime(full)\n\
+          \                    except OSError:\n                        continue\n\
+          \                    if latest is None or mtime > latest[0]:\n         \
+          \               latest = (mtime, full)\n            return latest[1] if\
+          \ latest else None\n\n        # Return the most recently modified model\
+          \ directory\n        candidates.sort(reverse=True)\n        return candidates[0][1]\n\
+          \n    # ------------------------------\n    # Kubernetes connection\n  \
+          \  # ------------------------------\n    def _init_k8s_client() -> _Optional[\"\
+          k8s_client.ApiClient\"]:\n        \"\"\"Initialize and return a Kubernetes\
+          \ client from env (server/token) or in-cluster/kubeconfig.\"\"\"\n     \
+          \   try:\n            from kubernetes import client as k8s_client, config\
+          \ as k8s_config\n            env_server = os.environ.get(\"KUBERNETES_SERVER_URL\"\
+          , \"\").strip()\n            env_token = os.environ.get(\"KUBERNETES_AUTH_TOKEN\"\
+          , \"\").strip()\n            if env_server and env_token:\n            \
+          \    logger.info(\"Configuring Kubernetes client from env (KUBERNETES_SERVER_URL/_AUTH_TOKEN)\"\
           )\n                cfg = k8s_client.Configuration()\n                cfg.host\
           \ = env_server\n                cfg.verify_ssl = False\n               \
           \ cfg.api_key = {\"authorization\": f\"Bearer {env_token}\"}\n         \
@@ -920,7 +984,11 @@ deploymentSpec:
           \ = {**base_env, **overrides}\n        for ek, ev in merged.items():\n \
           \           os.environ[ek] = ev\n        logger.info(f\"Env configured (keys):\
           \ {sorted(list(merged.keys()))}\")\n        return merged\n\n    merged_env\
-          \ = _configure_env(training_envs, default_env)\n\n    # ------------------------------\n\
+          \ = _configure_env(training_envs, default_env)\n\n    # Add HuggingFace\
+          \ token to environment if provided\n    if training_hf_token and training_hf_token.strip():\n\
+          \        merged_env[\"HF_TOKEN\"] = training_hf_token.strip()\n        os.environ[\"\
+          HF_TOKEN\"] = training_hf_token.strip()\n        logger.info(\"HF_TOKEN\
+          \ added to environment (for gated model access)\")\n\n    # ------------------------------\n\
           \    # Dataset resolution\n    # ------------------------------\n    from\
           \ datasets import load_dataset, load_from_disk, Dataset\n    import shutil\n\
           \n    resolved_dataset_dir = os.path.join(pvc_path, \"dataset\", \"train\"\
@@ -935,31 +1003,50 @@ deploymentSpec:
           \ If metadata['pvc_dir'] exists, prefer it.\n        \"\"\"\n        # 0)\
           \ If already present (e.g., staged by prior step), keep it\n        if os.path.isdir(out_dir)\
           \ and any(os.scandir(out_dir)):\n            logger.info(f\"Using existing\
-          \ dataset at {out_dir}\")\n            return\n        # 1) Input artifact\n\
-          \        if input_dataset and getattr(input_dataset, \"path\", None) and\
-          \ os.path.exists(input_dataset.path):\n            logger.info(f\"Copying\
-          \ input dataset from {input_dataset.path} to {out_dir}\")\n            shutil.copytree(input_dataset.path,\
-          \ out_dir, dirs_exist_ok=True)\n            return\n        # 2) Remote\
-          \ artifact (S3/HTTP) or HF repo id\n        rp = \"\"\n        try:\n  \
-          \          if input_dataset and hasattr(input_dataset, \"metadata\") and\
-          \ isinstance(input_dataset.metadata, dict):\n                pvc_dir = (input_dataset.metadata.get(\"\
-          pvc_dir\") or \"\").strip()\n                if pvc_dir and os.path.isdir(pvc_dir)\
-          \ and any(os.scandir(pvc_dir)):\n                    logger.info(f\"Using\
-          \ pre-staged PVC dataset at {pvc_dir}\")\n                    shutil.copytree(pvc_dir,\
-          \ out_dir, dirs_exist_ok=True)\n                    return\n           \
-          \     rp = (input_dataset.metadata.get(\"artifact_path\") or \"\").strip()\n\
-          \        except Exception:\n            rp = \"\"\n        if rp:\n    \
-          \        if looks_like_url(rp):\n                logger.info(f\"Attempting\
-          \ to load remote dataset from {rp}\")\n                # Try a few common\
-          \ formats via datasets library\n                ext = rp.lower()\n     \
-          \           try:\n                    if ext.endswith(\".json\") or ext.endswith(\"\
-          .jsonl\"):\n                        ds: Dataset = load_dataset(\"json\"\
-          , data_files=rp, split=\"train\")\n                    elif ext.endswith(\"\
-          .parquet\"):\n                        ds: Dataset = load_dataset(\"parquet\"\
-          , data_files=rp, split=\"train\")\n                    else:\n         \
-          \               raise ValueError(\n                            \"Unsupported\
-          \ remote dataset format. Provide a JSON/JSONL/PARQUET file or a HF dataset\
-          \ repo id.\"\n                        )\n                    ds.save_to_disk(out_dir)\n\
+          \ dataset at {out_dir}\")\n            return\n        # 1) Input artifact\
+          \ (can be a file or directory)\n        if input_dataset and getattr(input_dataset,\
+          \ \"path\", None) and os.path.exists(input_dataset.path):\n            src_path\
+          \ = input_dataset.path\n            if os.path.isdir(src_path):\n      \
+          \          logger.info(f\"Copying input dataset directory from {src_path}\
+          \ to {out_dir}\")\n                shutil.copytree(src_path, out_dir, dirs_exist_ok=True)\n\
+          \            else:\n                # It's a file (e.g., JSONL) - copy to\
+          \ out_dir with appropriate name\n                logger.info(f\"Copying\
+          \ input dataset file from {src_path} to {out_dir}\")\n                dst_file\
+          \ = os.path.join(out_dir, os.path.basename(src_path))\n                #\
+          \ If basename doesn't have extension, assume it's a jsonl file\n       \
+          \         if not os.path.splitext(dst_file)[1]:\n                    dst_file\
+          \ = os.path.join(out_dir, \"train.jsonl\")\n                shutil.copy2(src_path,\
+          \ dst_file)\n                logger.info(f\"Dataset file copied to {dst_file}\"\
+          )\n            return\n        # 2) Remote artifact (S3/HTTP) or HF repo\
+          \ id\n        rp = \"\"\n        try:\n            if input_dataset and\
+          \ hasattr(input_dataset, \"metadata\") and isinstance(input_dataset.metadata,\
+          \ dict):\n                pvc_path_meta = (input_dataset.metadata.get(\"\
+          pvc_path\") or input_dataset.metadata.get(\"pvc_dir\") or \"\").strip()\n\
+          \                if pvc_path_meta and os.path.exists(pvc_path_meta):\n \
+          \                   if os.path.isdir(pvc_path_meta) and any(os.scandir(pvc_path_meta)):\n\
+          \                        logger.info(f\"Using pre-staged PVC dataset directory\
+          \ at {pvc_path_meta}\")\n                        shutil.copytree(pvc_path_meta,\
+          \ out_dir, dirs_exist_ok=True)\n                        return\n       \
+          \             elif os.path.isfile(pvc_path_meta):\n                    \
+          \    logger.info(f\"Using pre-staged PVC dataset file at {pvc_path_meta}\"\
+          )\n                        dst_file = os.path.join(out_dir, os.path.basename(pvc_path_meta))\n\
+          \                        if not os.path.splitext(dst_file)[1]:\n       \
+          \                     dst_file = os.path.join(out_dir, \"train.jsonl\")\n\
+          \                        shutil.copy2(pvc_path_meta, dst_file)\n       \
+          \                 return\n                rp = (input_dataset.metadata.get(\"\
+          artifact_path\") or \"\").strip()\n        except Exception:\n         \
+          \   rp = \"\"\n        if rp:\n            if looks_like_url(rp):\n    \
+          \            logger.info(f\"Attempting to load remote dataset from {rp}\"\
+          )\n                # Try a few common formats via datasets library\n   \
+          \             ext = rp.lower()\n                try:\n                 \
+          \   if ext.endswith(\".json\") or ext.endswith(\".jsonl\"):\n          \
+          \              ds: Dataset = load_dataset(\"json\", data_files=rp, split=\"\
+          train\")\n                    elif ext.endswith(\".parquet\"):\n       \
+          \                 ds: Dataset = load_dataset(\"parquet\", data_files=rp,\
+          \ split=\"train\")\n                    else:\n                        raise\
+          \ ValueError(\n                            \"Unsupported remote dataset\
+          \ format. Provide a JSON/JSONL/PARQUET file or a HF dataset repo id.\"\n\
+          \                        )\n                    ds.save_to_disk(out_dir)\n\
           \                    return\n                except Exception as e:\n  \
           \                  raise ValueError(f\"Failed to load remote dataset from\
           \ {rp}: {e}\")\n            else:\n                # Treat as HF dataset\
@@ -1123,9 +1210,10 @@ deploymentSpec:
           \    # Export most recent checkpoint as model artifact (artifact store)\
           \ and PVC\n    # ------------------------------\n    def _persist_and_annotate()\
           \ -> None:\n        \"\"\"Copy latest checkpoint to PVC and artifact store,\
-          \ then annotate output metadata.\"\"\"\n        latest = find_most_recent_checkpoint(checkpoints_dir)\n\
-          \        if not latest:\n            raise RuntimeError(f\"No checkpoints\
-          \ found under {checkpoints_dir}\")\n        # PVC copy\n        pvc_dir\
+          \ then annotate output metadata.\"\"\"\n        latest = find_model_directory(checkpoints_dir)\n\
+          \        if not latest:\n            raise RuntimeError(f\"No model directory\
+          \ (with config.json) found under {checkpoints_dir}\")\n        logger.info(f\"\
+          Found model directory: {latest}\")\n        # PVC copy\n        pvc_dir\
           \ = os.path.join(pvc_path, \"final_model\")\n        try:\n            if\
           \ os.path.exists(pvc_dir):\n                shutil.rmtree(pvc_dir)\n   \
           \         shutil.copytree(latest, pvc_dir, dirs_exist_ok=True)\n       \
@@ -1143,6 +1231,160 @@ deploymentSpec:
           \   logger.warning(f\"Failed to set output_model metadata: {_e}\")\n\n \
           \   _persist_and_annotate()\n\n    return \"training completed\"\n\n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
+    exec-universal-llm-evaluator:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - universal_llm_evaluator
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'lm-eval[vllm]'\
+          \ 'unitxt' 'sacrebleu' 'datasets' 'accelerate' 'torch' 'transformers'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef universal_llm_evaluator(\n    output_metrics: dsl.Output[dsl.Metrics],\n\
+          \    output_results: dsl.Output[dsl.Artifact],\n    output_samples: dsl.Output[dsl.Artifact],\n\
+          \    # --- Generic Inputs ---\n    task_names: list,\n    model_path: str\
+          \ = None, # Optional: Use for HF Hub models (e.g. \"ibm/granite-7b\")\n\
+          \    model_artifact: dsl.Input[dsl.Model] = None, # Optional: Use for upstream\
+          \ pipeline models\n    eval_dataset: dsl.Input[dsl.Dataset] = None, # Optional:\
+          \ Eval dataset from pipeline (for tracking)\n    model_args: dict = {},\n\
+          \    gen_kwargs: dict = {},\n    batch_size: str = \"auto\",\n    limit:\
+          \ int = -1,\n    log_samples: bool = True,\n    verbosity: str = \"INFO\"\
+          ,\n):\n    \"\"\"\n    A Universal LLM Evaluator component using EleutherAI's\
+          \ lm-evaluation-harness.\n\n    Args:\n        model_path: String path or\
+          \ HF ID. Used if model_artifact is None.\n        model_artifact: KFP Model\
+          \ artifact from a previous pipeline step.\n        eval_dataset: Optional\
+          \ eval dataset artifact for tracking/future custom eval.\n        task_names:\
+          \ List of task names (e.g. [\"mmlu\", \"gsm8k\"]).\n        model_args:\
+          \ Dictionary for model initialization (e.g. {\"dtype\": \"float16\"}).\n\
+          \        ...\n    \"\"\"\n    import logging\n    import json\n    import\
+          \ os\n    import time\n    import torch\n\n    # Delayed imports\n    from\
+          \ lm_eval import evaluator\n\n    # --- 1. Setup Logging ---\n    logging.basicConfig(\n\
+          \        level=getattr(logging, verbosity.upper()),\n        format=\"%(asctime)s\
+          \ - %(name)s - %(levelname)s - %(message)s\",\n    )\n    logger = logging.getLogger(\"\
+          UniversalEval\")\n\n    if not torch.cuda.is_available():\n        logger.warning(\"\
+          CUDA is not available! Evaluation will be extremely slow.\")\n\n    # ---\
+          \ 2. Resolve Model Path ---\n    # Logic: Prefer PVC path from artifact\
+          \ metadata (shared PVC), then artifact path, then string path.\n    final_model_path\
+          \ = None\n    if model_artifact:\n        # Check if training component\
+          \ set pvc_model_dir in metadata (more reliable than S3 artifact path)\n\
+          \        meta = getattr(model_artifact, \"metadata\", {}) or {}\n      \
+          \  pvc_model_dir = meta.get(\"pvc_model_dir\")\n        if pvc_model_dir\
+          \ and os.path.isdir(pvc_model_dir):\n            logger.info(f\"Using model\
+          \ from PVC path (via metadata): {pvc_model_dir}\")\n            final_model_path\
+          \ = pvc_model_dir\n        elif os.path.isdir(model_artifact.path):\n  \
+          \          logger.info(f\"Using model from artifact path: {model_artifact.path}\"\
+          )\n            final_model_path = model_artifact.path\n        else:\n \
+          \           logger.warning(f\"Artifact path not found: {model_artifact.path},\
+          \ checking metadata...\")\n            if pvc_model_dir:\n             \
+          \   logger.info(f\"Falling back to PVC path from metadata: {pvc_model_dir}\"\
+          )\n                final_model_path = pvc_model_dir\n\n    if not final_model_path\
+          \ and model_path:\n        logger.info(f\"Using model from string path/ID:\
+          \ {model_path}\")\n        final_model_path = model_path\n\n    # --- Log\
+          \ eval dataset info (for tracking/lineage) ---\n    eval_dataset_info =\
+          \ {}\n    if eval_dataset:\n        eval_meta = getattr(eval_dataset, \"\
+          metadata\", {}) or {}\n        eval_dataset_info = {\n            \"num_examples\"\
+          : eval_meta.get(\"num_examples\", \"unknown\"),\n            \"split\":\
+          \ eval_meta.get(\"split\", \"eval\"),\n            \"pvc_path\": eval_meta.get(\"\
+          pvc_path\", eval_dataset.path),\n        }\n        logger.info(f\"Eval\
+          \ dataset: {eval_dataset_info['num_examples']} examples from {eval_dataset_info['split']}\
+          \ split\")\n        logger.info(f\"Eval dataset path: {eval_dataset_info['pvc_path']}\"\
+          )\n\n    if not final_model_path:\n        raise ValueError(\"No model provided!\
+          \ You must pass either 'model_path' (string) or 'model_artifact' (input).\"\
+          )\n\n    # Verify model directory has config.json (required by vLLM)\n \
+          \   config_path = os.path.join(final_model_path, \"config.json\")\n    if\
+          \ not os.path.exists(config_path):\n        logger.error(f\"Model directory\
+          \ missing config.json: {final_model_path}\")\n        logger.error(f\"Directory\
+          \ contents: {os.listdir(final_model_path) if os.path.isdir(final_model_path)\
+          \ else 'NOT A DIRECTORY'}\")\n        raise ValueError(f\"Invalid model\
+          \ directory - no config.json found at {final_model_path}\")\n\n    # ---\
+          \ 3. Input Sanitization ---\n    def parse_input(val, default):\n      \
+          \  if val is None: return default\n        if isinstance(val, str):\n  \
+          \          try: return json.loads(val)\n            except: return val\n\
+          \        return val\n\n    tasks_list = parse_input(task_names, [])\n  \
+          \  m_args = parse_input(model_args, {})\n    g_kwargs = parse_input(gen_kwargs,\
+          \ {})\n    limit_val = None if limit == -1 else limit\n\n    # --- 4. Construct\
+          \ Model Arguments ---\n    final_model_args = {\n        \"pretrained\"\
+          : final_model_path,  # The resolved path is used here\n        \"trust_remote_code\"\
+          : True,\n        \"gpu_memory_utilization\": 0.8,\n        \"dtype\": \"\
+          auto\"\n    }\n    final_model_args.update(m_args)\n\n    # --- 5. Execution\
+          \ ---\n    logger.info(\"Starting evaluation...\")\n    start_time = time.time()\n\
+          \n    try:\n        results = evaluator.simple_evaluate(\n            model=\"\
+          vllm\",\n            model_args=final_model_args,\n            tasks=tasks_list,\n\
+          \            batch_size=batch_size,\n            limit=limit_val,\n    \
+          \        log_samples=log_samples,\n            gen_kwargs=g_kwargs,\n  \
+          \          verbosity=verbosity\n        )\n    except Exception as e:\n\
+          \        logger.error(f\"Evaluation failed: {str(e)}\")\n        raise RuntimeError(f\"\
+          Fatal error in evaluation: {e}\")\n\n    # --- 6. Output Processing ---\n\
+          \    duration = time.time() - start_time\n    logger.info(f\"Evaluation\
+          \ completed in {duration:.2f}s\")\n\n    def clean_for_json(obj):\n    \
+          \    if isinstance(obj, (int, float, str, bool, type(None))): return obj\n\
+          \        elif hasattr(obj, \"item\"): return obj.item()\n        elif isinstance(obj,\
+          \ dict): return {k: clean_for_json(v) for k, v in obj.items()}\n       \
+          \ elif isinstance(obj, list): return [clean_for_json(item) for item in obj]\n\
+          \        return str(obj)\n\n    clean_results = clean_for_json(results)\n\
+          \n    # --- Log Evaluation Metadata (useful for data scientists) ---\n \
+          \   # Evaluation configuration\n    output_metrics.log_metric(\"eval_duration_seconds\"\
+          , round(duration, 2))\n    output_metrics.log_metric(\"eval_tasks_count\"\
+          , len(tasks_list))\n\n    # Add task list as metadata (will be stringified)\n\
+          \    try:\n        output_metrics.metadata[\"eval_tasks\"] = \",\".join(tasks_list)\n\
+          \        output_metrics.metadata[\"eval_model_path\"] = final_model_path\n\
+          \        output_metrics.metadata[\"eval_batch_size\"] = str(batch_size)\n\
+          \        output_metrics.metadata[\"eval_limit\"] = str(limit_val) if limit_val\
+          \ else \"all\"\n        # Add eval dataset info if available\n        if\
+          \ eval_dataset_info:\n            output_metrics.metadata[\"eval_dataset_examples\"\
+          ] = str(eval_dataset_info.get(\"num_examples\", \"\"))\n            output_metrics.metadata[\"\
+          eval_dataset_path\"] = eval_dataset_info.get(\"pvc_path\", \"\")\n    except\
+          \ Exception as e:\n        logger.warning(f\"Could not set metadata: {e}\"\
+          )\n\n    # Extract n-shot and version info if available\n    if \"n-shot\"\
+          \ in clean_results:\n        for task_name, n_shot in clean_results.get(\"\
+          n-shot\", {}).items():\n            safe_key = f\"{task_name}_n_shot\".replace(\"\
+          \ \", \"_\").replace(\"/\", \"_\")\n            output_metrics.log_metric(safe_key,\
+          \ n_shot)\n\n    # Log number of samples evaluated per task (from configs)\n\
+          \    if \"configs\" in clean_results:\n        for task_name, config in\
+          \ clean_results.get(\"configs\", {}).items():\n            if isinstance(config,\
+          \ dict):\n                num_fewshot = config.get(\"num_fewshot\", 0)\n\
+          \                if num_fewshot is not None:\n                    safe_key\
+          \ = f\"{task_name}_num_fewshot\".replace(\" \", \"_\").replace(\"/\", \"\
+          _\")\n                    output_metrics.log_metric(safe_key, num_fewshot)\n\
+          \n    # Save Task Metrics (accuracy, stderr, etc.)\n    if \"results\" in\
+          \ clean_results:\n        for task_name, metrics in clean_results[\"results\"\
+          ].items():\n            display_name = metrics.get(\"alias\", task_name)\n\
+          \            for key, value in metrics.items():\n                if isinstance(value,\
+          \ (int, float)) and key != \"alias\":\n                    safe_key = f\"\
+          {display_name}_{key}\".replace(\" \", \"_\").replace(\"/\", \"_\")\n   \
+          \                 output_metrics.log_metric(safe_key, value)\n\n    # Save\
+          \ Artifacts\n    output_results.name = \"eval_results.json\"\n    with open(output_results.path,\
+          \ \"w\") as f:\n        json.dump(clean_results, f, indent=2)\n\n    if\
+          \ log_samples and \"samples\" in clean_results:\n        output_samples.name\
+          \ = \"eval_samples.json\"\n        with open(output_samples.path, \"w\"\
+          ) as f:\n            json.dump(clean_results[\"samples\"], f, indent=2)\n\
+          \n"
+        image: registry.access.redhat.com/ubi9/python-311:latest
+        resources:
+          accelerator:
+            count: '1'
+            resourceCount: '1'
+            resourceType: nvidia.com/gpu
+            type: nvidia.com/gpu
 pipelineInfo:
   description: 'Skeleton pipeline with 4 stages sharing a PVC: dataset download, training,
     lm-eval, model registry'
@@ -1165,55 +1407,50 @@ root:
                 constant: '{{$.workspace_path}}'
             shared_log_file:
               componentInputParameter: shared_log_file
+            subset_count:
+              componentInputParameter: dataset_subset_count
             train_split_ratio:
-              componentInputParameter: dataset_train_split_ratio
+              componentInputParameter: dataset_split_ratio
         taskInfo:
           name: dataset-download
-      eval-lm-eval:
-        cachingOptions: {}
-        componentRef:
-          name: comp-eval-lm-eval
-        dependentTasks:
-        - train-model
-        inputs:
-          parameters:
-            pvc_mount_path:
-              runtimeValue:
-                constant: '{{$.workspace_path}}'
-            shared_log_file:
-              componentInputParameter: shared_log_file
-        taskInfo:
-          name: eval-lm-eval
       model-registry:
         cachingOptions: {}
         componentRef:
           name: comp-model-registry
         dependentTasks:
-        - eval-lm-eval
+        - train-model
+        - universal-llm-evaluator
         inputs:
+          artifacts:
+            eval_metrics:
+              taskOutputArtifact:
+                outputArtifactKey: output_metrics
+                producerTask: universal-llm-evaluator
+            eval_results:
+              taskOutputArtifact:
+                outputArtifactKey: output_results
+                producerTask: universal-llm-evaluator
+            input_metrics:
+              taskOutputArtifact:
+                outputArtifactKey: output_metrics
+                producerTask: train-model
+            input_model:
+              taskOutputArtifact:
+                outputArtifactKey: output_model
+                producerTask: train-model
           parameters:
             author:
-              componentInputParameter: author
+              componentInputParameter: registry_model_author
             model_description:
-              componentInputParameter: model_description
+              componentInputParameter: registry_model_description
             model_format_name:
-              componentInputParameter: model_format_name
+              componentInputParameter: registry_model_format_name
             model_format_version:
-              componentInputParameter: model_format_version
+              componentInputParameter: registry_model_format_version
             model_name:
-              componentInputParameter: model_name
-            model_s3_access_key:
-              componentInputParameter: model_s3_access_key
-            model_s3_bucket:
-              componentInputParameter: model_s3_bucket
-            model_s3_endpoint:
-              componentInputParameter: model_s3_endpoint
-            model_s3_key:
-              componentInputParameter: model_s3_key
-            model_s3_secret_key:
-              componentInputParameter: model_s3_secret_key
+              componentInputParameter: registry_model_name
             model_version:
-              componentInputParameter: model_version
+              componentInputParameter: registry_model_version
             pvc_mount_path:
               runtimeValue:
                 constant: '{{$.workspace_path}}'
@@ -1232,26 +1469,33 @@ root:
         dependentTasks:
         - dataset-download
         inputs:
+          artifacts:
+            dataset:
+              taskOutputArtifact:
+                outputArtifactKey: train_dataset
+                producerTask: dataset-download
           parameters:
             pvc_path:
               runtimeValue:
                 constant: '{{$.workspace_path}}'
             training_accelerate_full_state_at_epoch:
-              componentInputParameter: training_accelerate_full_state_at_epoch
+              componentInputParameter: training_save_full_state
             training_algorithm:
-              componentInputParameter: training_algorithm
+              componentInputParameter: training_model_algorithm
             training_backend:
-              componentInputParameter: training_backend
+              componentInputParameter: training_model_backend
             training_base_model:
-              componentInputParameter: training_base_model
+              componentInputParameter: training_model_base
             training_checkpoint_at_epoch:
-              componentInputParameter: training_checkpoint_at_epoch
+              componentInputParameter: training_save_at_epoch
             training_effective_batch_size:
-              componentInputParameter: training_effective_batch_size
+              componentInputParameter: training_hyper_batch_size
             training_envs:
-              componentInputParameter: training_envs
+              componentInputParameter: training_env_vars
+            training_hf_token:
+              componentInputParameter: training_env_hf_token
             training_learning_rate:
-              componentInputParameter: training_learning_rate
+              componentInputParameter: training_hyper_learning_rate
             training_lr_scheduler:
               componentInputParameter: training_lr_scheduler
             training_lr_scheduler_kwargs:
@@ -1259,228 +1503,328 @@ root:
             training_lr_warmup_steps:
               componentInputParameter: training_lr_warmup_steps
             training_max_seq_len:
-              componentInputParameter: training_max_seq_len
+              componentInputParameter: training_hyper_max_seq_len
             training_max_tokens_per_gpu:
-              componentInputParameter: training_max_tokens_per_gpu
+              componentInputParameter: training_hyper_max_tokens_per_gpu
             training_metadata_annotations:
-              componentInputParameter: training_metadata_annotations
+              componentInputParameter: training_env_annotations
             training_metadata_labels:
-              componentInputParameter: training_metadata_labels
+              componentInputParameter: training_env_labels
             training_num_epochs:
-              componentInputParameter: training_num_epochs
+              componentInputParameter: training_hyper_epochs
             training_resource_cpu_per_worker:
-              componentInputParameter: training_resource_cpu_per_worker
+              componentInputParameter: training_res_cpu
             training_resource_gpu_per_worker:
-              componentInputParameter: training_resource_gpu_per_worker
+              componentInputParameter: training_res_gpu
             training_resource_memory_per_worker:
-              componentInputParameter: training_resource_memory_per_worker
+              componentInputParameter: training_res_memory
             training_resource_num_procs_per_worker:
-              componentInputParameter: training_resource_num_procs_per_worker
+              componentInputParameter: training_res_num_procs
             training_resource_num_workers:
-              componentInputParameter: training_resource_num_workers
+              componentInputParameter: training_res_num_workers
             training_save_final_checkpoint:
-              componentInputParameter: training_save_final_checkpoint
+              componentInputParameter: training_save_final
             training_save_samples:
               componentInputParameter: training_save_samples
             training_seed:
-              componentInputParameter: training_seed
+              componentInputParameter: training_hyper_seed
             training_target_patterns:
-              componentInputParameter: training_target_patterns
+              componentInputParameter: training_hyper_target_patterns
             training_unfreeze_rank_ratio:
-              componentInputParameter: training_unfreeze_rank_ratio
+              componentInputParameter: training_model_unfreeze_ratio
             training_unmask_messages:
-              componentInputParameter: training_unmask_messages
+              componentInputParameter: training_opt_unmask_messages
             training_use_liger:
-              componentInputParameter: training_use_liger
+              componentInputParameter: training_opt_use_liger
             training_use_processed_dataset:
-              componentInputParameter: training_use_processed_dataset
+              componentInputParameter: training_opt_processed_dataset
         taskInfo:
           name: train-model
+      universal-llm-evaluator:
+        cachingOptions: {}
+        componentRef:
+          name: comp-universal-llm-evaluator
+        dependentTasks:
+        - dataset-download
+        - train-model
+        inputs:
+          artifacts:
+            eval_dataset:
+              taskOutputArtifact:
+                outputArtifactKey: eval_dataset
+                producerTask: dataset-download
+            model_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: output_model
+                producerTask: train-model
+          parameters:
+            batch_size:
+              componentInputParameter: eval_cfg_batch_size
+            gen_kwargs:
+              componentInputParameter: eval_gen_kwargs
+            limit:
+              componentInputParameter: eval_cfg_limit
+            log_samples:
+              componentInputParameter: eval_cfg_log_samples
+            model_args:
+              componentInputParameter: eval_model_args
+            task_names:
+              componentInputParameter: eval_task_names
+            verbosity:
+              componentInputParameter: eval_cfg_verbosity
+        taskInfo:
+          name: universal-llm-evaluator
   inputDefinitions:
     parameters:
-      author:
-        defaultValue: pipeline
-        isOptional: true
-        parameterType: STRING
-      model_description:
+      dataset_hf_token:
         defaultValue: ''
+        description: HuggingFace token for gated/private datasets
         isOptional: true
         parameterType: STRING
-      model_format_name:
-        defaultValue: pytorch
+      dataset_split_ratio:
+        defaultValue: 0.9
+        description: Train/eval split ratio (0.9 = 90% train, 10% eval)
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      dataset_subset_count:
+        defaultValue: 0.0
+        description: Number of examples to use (0 = all)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      dataset_uri:
+        description: Dataset URI (hf://, s3://, https://, pvc://, or absolute path)
+        parameterType: STRING
+      eval_cfg_batch_size:
+        defaultValue: auto
+        description: Eval batch size (auto or integer)
         isOptional: true
         parameterType: STRING
-      model_format_version:
-        defaultValue: '1.0'
+      eval_cfg_limit:
+        defaultValue: -1.0
+        description: Max samples per task (-1 = all)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      eval_cfg_log_samples:
+        defaultValue: true
+        description: Log individual sample predictions
+        isOptional: true
+        parameterType: BOOLEAN
+      eval_cfg_verbosity:
+        defaultValue: INFO
+        description: Logging level (DEBUG, INFO, WARNING, ERROR)
         isOptional: true
         parameterType: STRING
-      model_name:
-        defaultValue: fine-tuned-model
+      eval_gen_kwargs:
+        defaultValue: {}
+        description: Generation kwargs dict (max_tokens, temperature)
         isOptional: true
-        parameterType: STRING
-      model_s3_access_key:
-        defaultValue: ''
+        parameterType: STRUCT
+      eval_model_args:
+        defaultValue: {}
+        description: Model init args dict (dtype, gpu_memory_utilization)
         isOptional: true
-        parameterType: STRING
-      model_s3_bucket:
-        defaultValue: ''
+        parameterType: STRUCT
+      eval_task_names:
+        defaultValue:
+        - arc_easy
+        description: List of lm-eval tasks (mmlu, gsm8k, arc_easy, etc.)
         isOptional: true
-        parameterType: STRING
-      model_s3_endpoint:
-        defaultValue: ''
-        isOptional: true
-        parameterType: STRING
-      model_s3_key:
-        defaultValue: ''
-        isOptional: true
-        parameterType: STRING
-      model_s3_secret_key:
-        defaultValue: ''
-        isOptional: true
-        parameterType: STRING
-      model_version:
-        defaultValue: 1.0.0
-        isOptional: true
-        parameterType: STRING
+        parameterType: LIST
       registry_address:
         defaultValue: ''
+        description: Model registry server address (empty = skip)
+        isOptional: true
+        parameterType: STRING
+      registry_model_author:
+        defaultValue: pipeline
+        description: Author/owner name for registered model
+        isOptional: true
+        parameterType: STRING
+      registry_model_description:
+        defaultValue: ''
+        description: Human-readable model description
+        isOptional: true
+        parameterType: STRING
+      registry_model_format_name:
+        defaultValue: pytorch
+        description: Model format (pytorch, onnx, tensorflow)
+        isOptional: true
+        parameterType: STRING
+      registry_model_format_version:
+        defaultValue: '1.0'
+        description: Model format version
+        isOptional: true
+        parameterType: STRING
+      registry_model_name:
+        defaultValue: fine-tuned-model
+        description: Name for the registered model
+        isOptional: true
+        parameterType: STRING
+      registry_model_version:
+        defaultValue: 1.0.0
+        description: Version string for the model
         isOptional: true
         parameterType: STRING
       registry_port:
         defaultValue: 8080.0
+        description: Model registry server port
         isOptional: true
         parameterType: NUMBER_INTEGER
-      dataset_hf_token:
-        defaultValue: ''
-        isOptional: true
-        parameterType: STRING
-      dataset_train_split_ratio:
-        defaultValue: 0.9
-        isOptional: true
-        parameterType: NUMBER_DOUBLE
-      dataset_uri:
-        parameterType: STRING
       shared_log_file:
         defaultValue: pipeline_log.txt
-        description: Name of the shared log file for tracking completion.
+        description: Shared log file on PVC for tracking progress
         isOptional: true
         parameterType: STRING
-      training_accelerate_full_state_at_epoch:
-        isOptional: true
-        parameterType: BOOLEAN
-      training_algorithm:
-        defaultValue: OSFT
+      training_env_annotations:
+        defaultValue: ''
+        description: K8s annotations for training pods (key=val,...)
         isOptional: true
         parameterType: STRING
-      training_backend:
-        defaultValue: mini-trainer
+      training_env_hf_token:
+        defaultValue: ''
+        description: HuggingFace token for gated models (Llama, Mistral)
         isOptional: true
         parameterType: STRING
-      training_base_model:
-        defaultValue: Qwen/Qwen2.5-1.5B-Instruct
+      training_env_labels:
+        defaultValue: ''
+        description: K8s labels for training pods (key=val,...)
         isOptional: true
         parameterType: STRING
-      training_checkpoint_at_epoch:
-        defaultValue: false
+      training_env_vars:
+        defaultValue: ''
+        description: Additional env vars (KEY=VAL,KEY=VAL)
         isOptional: true
-        parameterType: BOOLEAN
-      training_effective_batch_size:
+        parameterType: STRING
+      training_hyper_batch_size:
         defaultValue: 128.0
+        description: Effective batch size (samples per optimizer step)
         isOptional: true
         parameterType: NUMBER_INTEGER
-      training_envs:
-        defaultValue: ''
+      training_hyper_epochs:
+        defaultValue: 1.0
+        description: Number of training epochs
         isOptional: true
-        parameterType: STRING
-      training_learning_rate:
+        parameterType: NUMBER_INTEGER
+      training_hyper_learning_rate:
         defaultValue: 5.0e-06
+        description: 'Learning rate (typical: 1e-6 to 1e-4)'
         isOptional: true
         parameterType: NUMBER_DOUBLE
+      training_hyper_max_seq_len:
+        defaultValue: 8192.0
+        description: Maximum sequence length in tokens
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      training_hyper_max_tokens_per_gpu:
+        defaultValue: 64000.0
+        description: Max tokens per GPU (memory cap)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      training_hyper_seed:
+        defaultValue: 42.0
+        description: Random seed for reproducibility
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      training_hyper_target_patterns:
+        defaultValue: ''
+        description: OSFT module patterns (comma-separated)
+        isOptional: true
+        parameterType: STRING
       training_lr_scheduler:
         defaultValue: cosine
+        description: LR scheduler type (cosine, linear, constant)
         isOptional: true
         parameterType: STRING
       training_lr_scheduler_kwargs:
         defaultValue: ''
+        description: Extra scheduler params (key=val,...)
         isOptional: true
         parameterType: STRING
       training_lr_warmup_steps:
         defaultValue: 0.0
+        description: Warmup steps before full learning rate
         isOptional: true
         parameterType: NUMBER_INTEGER
-      training_max_seq_len:
-        defaultValue: 8192.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_max_tokens_per_gpu:
-        defaultValue: 64000.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_metadata_annotations:
-        defaultValue: ''
+      training_model_algorithm:
+        defaultValue: OSFT
+        description: Training algorithm - OSFT (continual learning) or SFT
         isOptional: true
         parameterType: STRING
-      training_metadata_labels:
-        defaultValue: ''
+      training_model_backend:
+        defaultValue: mini-trainer
+        description: Training backend - mini-trainer or instructlab-training
         isOptional: true
         parameterType: STRING
-      training_num_epochs:
-        defaultValue: 1.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_resource_cpu_per_worker:
-        defaultValue: '8'
+      training_model_base:
+        defaultValue: Qwen/Qwen2.5-1.5B-Instruct
+        description: HuggingFace model ID or path to fine-tune
         isOptional: true
         parameterType: STRING
-      training_resource_gpu_per_worker:
-        defaultValue: 1.0
+      training_model_unfreeze_ratio:
+        defaultValue: 0.25
+        description: OSFT ratio of parameters to unfreeze (0.1-0.5)
         isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_resource_memory_per_worker:
-        defaultValue: 32Gi
+        parameterType: NUMBER_DOUBLE
+      training_opt_processed_dataset:
+        defaultValue: false
+        description: True if dataset already has input_ids (False=process raw)
         isOptional: true
-        parameterType: STRING
-      training_resource_num_procs_per_worker:
-        defaultValue: 1.0
+        parameterType: BOOLEAN
+      training_opt_unmask_messages:
+        defaultValue: false
+        description: Unmask messages during chat data processing
         isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_resource_num_workers:
-        defaultValue: 1.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_resources_num_nodes:
-        defaultValue: 2.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_save_final_checkpoint:
+        parameterType: BOOLEAN
+      training_opt_use_liger:
         defaultValue: true
+        description: Enable Liger kernel optimizations
+        isOptional: true
+        parameterType: BOOLEAN
+      training_res_cpu:
+        defaultValue: '8'
+        description: CPU cores per training worker pod
+        isOptional: true
+        parameterType: STRING
+      training_res_gpu:
+        defaultValue: 1.0
+        description: GPUs per training worker pod
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      training_res_memory:
+        defaultValue: 32Gi
+        description: Memory per training worker pod (e.g., 32Gi)
+        isOptional: true
+        parameterType: STRING
+      training_res_num_procs:
+        defaultValue: 1.0
+        description: Processes per worker (usually equals GPUs)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      training_res_num_workers:
+        defaultValue: 1.0
+        description: Total worker pods (1=single-node, 2+=distributed)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      training_save_at_epoch:
+        defaultValue: false
+        description: Save checkpoint at end of each epoch
+        isOptional: true
+        parameterType: BOOLEAN
+      training_save_final:
+        defaultValue: true
+        description: Save final model checkpoint
+        isOptional: true
+        parameterType: BOOLEAN
+      training_save_full_state:
+        defaultValue: false
+        description: Save full Accelerate state for resumption
         isOptional: true
         parameterType: BOOLEAN
       training_save_samples:
+        defaultValue: 0.0
+        description: Number of samples to save (0 disables)
         isOptional: true
         parameterType: NUMBER_INTEGER
-      training_seed:
-        defaultValue: 42.0
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      training_target_patterns:
-        defaultValue: ''
-        isOptional: true
-        parameterType: STRING
-      training_unfreeze_rank_ratio:
-        defaultValue: 0.25
-        isOptional: true
-        parameterType: NUMBER_DOUBLE
-      training_unmask_messages:
-        isOptional: true
-        parameterType: BOOLEAN
-      training_use_liger:
-        defaultValue: true
-        isOptional: true
-        parameterType: BOOLEAN
-      training_use_processed_dataset:
-        isOptional: true
-        parameterType: BOOLEAN
 schemaVersion: 2.1.0
 sdkVersion: kfp-2.15.2
 ---
@@ -1501,8 +1845,6 @@ platforms:
             secretNameParameter:
               runtimeValue:
                 constant: minio-secret
-        exec-eval-lm-eval:
-          imagePullPolicy: IfNotPresent
         exec-model-registry:
           imagePullPolicy: IfNotPresent
         exec-train-model:
@@ -1518,6 +1860,20 @@ platforms:
             secretNameParameter:
               runtimeValue:
                 constant: kubernetes-credentials
+        exec-universal-llm-evaluator:
+          imagePullPolicy: IfNotPresent
+          nodeSelector:
+            labels:
+              nvidia.com/gpu.present: 'true'
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: HF_TOKEN
+              secretKey: HF_TOKEN
+            optional: false
+            secretName: hf-token
+            secretNameParameter:
+              runtimeValue:
+                constant: hf-token
     pipelineConfig:
       workspace:
         kubernetes:
