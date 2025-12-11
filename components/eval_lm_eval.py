@@ -21,6 +21,7 @@ def universal_llm_evaluator(
     task_names: list,
     model_path: str = None, # Optional: Use for HF Hub models (e.g. "ibm/granite-7b")
     model_artifact: dsl.Input[dsl.Model] = None, # Optional: Use for upstream pipeline models
+    eval_dataset: dsl.Input[dsl.Dataset] = None, # Optional: Eval dataset from pipeline (for tracking)
     model_args: dict = {},
     gen_kwargs: dict = {},
     batch_size: str = "auto",
@@ -34,6 +35,7 @@ def universal_llm_evaluator(
     Args:
         model_path: String path or HF ID. Used if model_artifact is None.
         model_artifact: KFP Model artifact from a previous pipeline step.
+        eval_dataset: Optional eval dataset artifact for tracking/future custom eval.
         task_names: List of task names (e.g. ["mmlu", "gsm8k"]).
         model_args: Dictionary for model initialization (e.g. {"dtype": "float16"}).
         ...
@@ -58,15 +60,49 @@ def universal_llm_evaluator(
         logger.warning("CUDA is not available! Evaluation will be extremely slow.")
 
     # --- 2. Resolve Model Path ---
-    # Logic: Prefer the artifact from previous step; fallback to string path.
+    # Logic: Prefer PVC path from artifact metadata (shared PVC), then artifact path, then string path.
+    final_model_path = None
     if model_artifact:
-        logger.info(f"Using model from pipeline artifact: {model_artifact.path}")
-        final_model_path = model_artifact.path
-    elif model_path:
+        # Check if training component set pvc_model_dir in metadata (more reliable than S3 artifact path)
+        meta = getattr(model_artifact, "metadata", {}) or {}
+        pvc_model_dir = meta.get("pvc_model_dir")
+        if pvc_model_dir and os.path.isdir(pvc_model_dir):
+            logger.info(f"Using model from PVC path (via metadata): {pvc_model_dir}")
+            final_model_path = pvc_model_dir
+        elif os.path.isdir(model_artifact.path):
+            logger.info(f"Using model from artifact path: {model_artifact.path}")
+            final_model_path = model_artifact.path
+        else:
+            logger.warning(f"Artifact path not found: {model_artifact.path}, checking metadata...")
+            if pvc_model_dir:
+                logger.info(f"Falling back to PVC path from metadata: {pvc_model_dir}")
+                final_model_path = pvc_model_dir
+
+    if not final_model_path and model_path:
         logger.info(f"Using model from string path/ID: {model_path}")
         final_model_path = model_path
-    else:
+
+    # --- Log eval dataset info (for tracking/lineage) ---
+    eval_dataset_info = {}
+    if eval_dataset:
+        eval_meta = getattr(eval_dataset, "metadata", {}) or {}
+        eval_dataset_info = {
+            "num_examples": eval_meta.get("num_examples", "unknown"),
+            "split": eval_meta.get("split", "eval"),
+            "pvc_path": eval_meta.get("pvc_path", eval_dataset.path),
+        }
+        logger.info(f"Eval dataset: {eval_dataset_info['num_examples']} examples from {eval_dataset_info['split']} split")
+        logger.info(f"Eval dataset path: {eval_dataset_info['pvc_path']}")
+
+    if not final_model_path:
         raise ValueError("No model provided! You must pass either 'model_path' (string) or 'model_artifact' (input).")
+
+    # Verify model directory has config.json (required by vLLM)
+    config_path = os.path.join(final_model_path, "config.json")
+    if not os.path.exists(config_path):
+        logger.error(f"Model directory missing config.json: {final_model_path}")
+        logger.error(f"Directory contents: {os.listdir(final_model_path) if os.path.isdir(final_model_path) else 'NOT A DIRECTORY'}")
+        raise ValueError(f"Invalid model directory - no config.json found at {final_model_path}")
 
     # --- 3. Input Sanitization ---
     def parse_input(val, default):
@@ -122,7 +158,40 @@ def universal_llm_evaluator(
 
     clean_results = clean_for_json(results)
 
-    # Save Metrics
+    # --- Log Evaluation Metadata (useful for data scientists) ---
+    # Evaluation configuration
+    output_metrics.log_metric("eval_duration_seconds", round(duration, 2))
+    output_metrics.log_metric("eval_tasks_count", len(tasks_list))
+
+    # Add task list as metadata (will be stringified)
+    try:
+        output_metrics.metadata["eval_tasks"] = ",".join(tasks_list)
+        output_metrics.metadata["eval_model_path"] = final_model_path
+        output_metrics.metadata["eval_batch_size"] = str(batch_size)
+        output_metrics.metadata["eval_limit"] = str(limit_val) if limit_val else "all"
+        # Add eval dataset info if available
+        if eval_dataset_info:
+            output_metrics.metadata["eval_dataset_examples"] = str(eval_dataset_info.get("num_examples", ""))
+            output_metrics.metadata["eval_dataset_path"] = eval_dataset_info.get("pvc_path", "")
+    except Exception as e:
+        logger.warning(f"Could not set metadata: {e}")
+
+    # Extract n-shot and version info if available
+    if "n-shot" in clean_results:
+        for task_name, n_shot in clean_results.get("n-shot", {}).items():
+            safe_key = f"{task_name}_n_shot".replace(" ", "_").replace("/", "_")
+            output_metrics.log_metric(safe_key, n_shot)
+
+    # Log number of samples evaluated per task (from configs)
+    if "configs" in clean_results:
+        for task_name, config in clean_results.get("configs", {}).items():
+            if isinstance(config, dict):
+                num_fewshot = config.get("num_fewshot", 0)
+                if num_fewshot is not None:
+                    safe_key = f"{task_name}_num_fewshot".replace(" ", "_").replace("/", "_")
+                    output_metrics.log_metric(safe_key, num_fewshot)
+
+    # Save Task Metrics (accuracy, stderr, etc.)
     if "results" in clean_results:
         for task_name, metrics in clean_results["results"].items():
             display_name = metrics.get("alias", task_name)

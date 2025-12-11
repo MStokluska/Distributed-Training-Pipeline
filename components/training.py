@@ -59,6 +59,8 @@ def train_model(
     training_save_final_checkpoint: Optional[bool] = None,
     training_num_epochs: Optional[int] = None,
     training_data_output_dir: Optional[str] = None,
+    # HuggingFace token for gated models (optional - leave empty if not needed)
+    training_hf_token: str = "",
     # Env overrides: "KEY=VAL,KEY=VAL"
     training_envs: str = "",
     # Resource and runtime parameters (per worker/pod)
@@ -181,22 +183,44 @@ def train_model(
     logger.info(f"pvc_path={pvc_path}, model_name={training_base_model}")
 
     # ------------------------------
-    # Utility: latest checkpoint
+    # Utility: find model directory (with config.json)
     # ------------------------------
-    def find_most_recent_checkpoint(checkpoints_root: str) -> _Optional[str]:
+    def find_model_directory(checkpoints_root: str) -> _Optional[str]:
+        """Find the actual model directory containing config.json.
+
+        Searches recursively for a directory with config.json, prioritizing
+        the most recently modified one. Handles nested checkpoint structures
+        like: checkpoints/epoch-1/samples_90.0/config.json
+        """
         if not os.path.isdir(checkpoints_root):
             return None
-        latest: _Optional[Tuple[float, str]] = None
-        for entry in os.listdir(checkpoints_root):
-            full = os.path.join(checkpoints_root, entry)
-            if os.path.isdir(full):
+
+        candidates: list = []
+        for root, dirs, files in os.walk(checkpoints_root):
+            if "config.json" in files:
                 try:
-                    mtime = os.path.getmtime(full)
+                    mtime = os.path.getmtime(os.path.join(root, "config.json"))
+                    candidates.append((mtime, root))
                 except OSError:
                     continue
-                if latest is None or mtime > latest[0]:
-                    latest = (mtime, full)
-        return latest[1] if latest else None
+
+        if not candidates:
+            # Fallback: return most recent top-level directory
+            latest: _Optional[Tuple[float, str]] = None
+            for entry in os.listdir(checkpoints_root):
+                full = os.path.join(checkpoints_root, entry)
+                if os.path.isdir(full):
+                    try:
+                        mtime = os.path.getmtime(full)
+                    except OSError:
+                        continue
+                    if latest is None or mtime > latest[0]:
+                        latest = (mtime, full)
+            return latest[1] if latest else None
+
+        # Return the most recently modified model directory
+        candidates.sort(reverse=True)
+        return candidates[0][1]
 
     # ------------------------------
     # Kubernetes connection
@@ -269,6 +293,12 @@ def train_model(
 
     merged_env = _configure_env(training_envs, default_env)
 
+    # Add HuggingFace token to environment if provided
+    if training_hf_token and training_hf_token.strip():
+        merged_env["HF_TOKEN"] = training_hf_token.strip()
+        os.environ["HF_TOKEN"] = training_hf_token.strip()
+        logger.info("HF_TOKEN added to environment (for gated model access)")
+
     # ------------------------------
     # Dataset resolution
     # ------------------------------
@@ -292,20 +322,39 @@ def train_model(
         if os.path.isdir(out_dir) and any(os.scandir(out_dir)):
             logger.info(f"Using existing dataset at {out_dir}")
             return
-        # 1) Input artifact
+        # 1) Input artifact (can be a file or directory)
         if input_dataset and getattr(input_dataset, "path", None) and os.path.exists(input_dataset.path):
-            logger.info(f"Copying input dataset from {input_dataset.path} to {out_dir}")
-            shutil.copytree(input_dataset.path, out_dir, dirs_exist_ok=True)
+            src_path = input_dataset.path
+            if os.path.isdir(src_path):
+                logger.info(f"Copying input dataset directory from {src_path} to {out_dir}")
+                shutil.copytree(src_path, out_dir, dirs_exist_ok=True)
+            else:
+                # It's a file (e.g., JSONL) - copy to out_dir with appropriate name
+                logger.info(f"Copying input dataset file from {src_path} to {out_dir}")
+                dst_file = os.path.join(out_dir, os.path.basename(src_path))
+                # If basename doesn't have extension, assume it's a jsonl file
+                if not os.path.splitext(dst_file)[1]:
+                    dst_file = os.path.join(out_dir, "train.jsonl")
+                shutil.copy2(src_path, dst_file)
+                logger.info(f"Dataset file copied to {dst_file}")
             return
         # 2) Remote artifact (S3/HTTP) or HF repo id
         rp = ""
         try:
             if input_dataset and hasattr(input_dataset, "metadata") and isinstance(input_dataset.metadata, dict):
-                pvc_dir = (input_dataset.metadata.get("pvc_dir") or "").strip()
-                if pvc_dir and os.path.isdir(pvc_dir) and any(os.scandir(pvc_dir)):
-                    logger.info(f"Using pre-staged PVC dataset at {pvc_dir}")
-                    shutil.copytree(pvc_dir, out_dir, dirs_exist_ok=True)
-                    return
+                pvc_path_meta = (input_dataset.metadata.get("pvc_path") or input_dataset.metadata.get("pvc_dir") or "").strip()
+                if pvc_path_meta and os.path.exists(pvc_path_meta):
+                    if os.path.isdir(pvc_path_meta) and any(os.scandir(pvc_path_meta)):
+                        logger.info(f"Using pre-staged PVC dataset directory at {pvc_path_meta}")
+                        shutil.copytree(pvc_path_meta, out_dir, dirs_exist_ok=True)
+                        return
+                    elif os.path.isfile(pvc_path_meta):
+                        logger.info(f"Using pre-staged PVC dataset file at {pvc_path_meta}")
+                        dst_file = os.path.join(out_dir, os.path.basename(pvc_path_meta))
+                        if not os.path.splitext(dst_file)[1]:
+                            dst_file = os.path.join(out_dir, "train.jsonl")
+                        shutil.copy2(pvc_path_meta, dst_file)
+                        return
                 rp = (input_dataset.metadata.get("artifact_path") or "").strip()
         except Exception:
             rp = ""
@@ -546,9 +595,10 @@ def train_model(
     # ------------------------------
     def _persist_and_annotate() -> None:
         """Copy latest checkpoint to PVC and artifact store, then annotate output metadata."""
-        latest = find_most_recent_checkpoint(checkpoints_dir)
+        latest = find_model_directory(checkpoints_dir)
         if not latest:
-            raise RuntimeError(f"No checkpoints found under {checkpoints_dir}")
+            raise RuntimeError(f"No model directory (with config.json) found under {checkpoints_dir}")
+        logger.info(f"Found model directory: {latest}")
         # PVC copy
         pvc_dir = os.path.join(pvc_path, "final_model")
         try:

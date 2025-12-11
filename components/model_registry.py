@@ -8,17 +8,14 @@ from kfp import dsl
 
 @dsl.component(
     base_image="quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438",
-    packages_to_install=["boto3", "model-registry==0.2.10"],
+    packages_to_install=["model-registry==0.2.10"],
 )
 def model_registry(
     pvc_mount_path: str,
     input_model: dsl.Input[dsl.Model] = None,
     input_metrics: dsl.Input[dsl.Metrics] = None,
-    model_s3_bucket: str = "",
-    model_s3_key: str = "",
-    model_s3_endpoint: str = "",
-    model_s3_access_key: str = "",
-    model_s3_secret_key: str = "",
+    eval_metrics: dsl.Input[dsl.Metrics] = None,
+    eval_results: dsl.Input[dsl.Artifact] = None,
     registry_address: str = "",
     registry_port: int = 8080,
     model_name: str = "fine-tuned-model",
@@ -31,11 +28,16 @@ def model_registry(
 ) -> str:
     """Register model to Kubeflow Model Registry.
 
-    Prefers the upstream model artifact (input_model) produced by training.
-    Falls back to S3 parameters when no model artifact is provided.
+    Uses the upstream model artifact (input_model) produced by training,
+    or falls back to PVC path if no artifact is provided.
+
+    Args:
+        input_model: Model artifact from training step.
+        input_metrics: Training metrics.
+        eval_metrics: Evaluation metrics from lm-eval.
+        eval_results: Full evaluation results JSON artifact.
     """
     import os
-    import json
     from model_registry import ModelRegistry
     from model_registry.exceptions import StoreError
 
@@ -43,46 +45,28 @@ def model_registry(
     print("MODEL REGISTRY COMPONENT")
     print("=" * 60)
 
-    # Derive model URI and name from upstream artifact when available
-    resolved_model_name = model_name
+    # Derive model URI from upstream artifact; use user-provided name (prioritize user input)
+    resolved_model_name = model_name  # User's parameter takes precedence
     model_uri = ""
+    base_model_name = None
     if input_model:
-        # Prefer artifact_path metadata if present, else the artifact path
         meta = getattr(input_model, "metadata", {}) or {}
-        resolved_model_name = meta.get("model_name", model_name)
+        base_model_name = meta.get("model_name")  # e.g., "Qwen/Qwen2.5-1.5B-Instruct"
+        # Only use metadata name if user didn't provide one (kept default)
+        if model_name == "fine-tuned-model" and base_model_name:
+            resolved_model_name = base_model_name
         model_uri = meta.get("artifact_path") or getattr(input_model, "path", "") or model_uri
         if not model_uri:
-            model_uri = f"pvc://{pvc_mount_path}/model"
-    elif model_s3_bucket:
-        model_uri = f"s3://{model_s3_bucket}/{model_s3_key}"
+            model_uri = f"pvc://{pvc_mount_path}/final_model"
     else:
-        model_uri = f"pvc://{pvc_mount_path}/model"
+        model_uri = f"pvc://{pvc_mount_path}/final_model"
 
     print(f"\n  Model Name: {resolved_model_name}")
+    if base_model_name:
+        print(f"  Base Model: {base_model_name}")
     print(f"  Model Version: {model_version}")
     print(f"  Model URI: {model_uri}")
     print(f"  Registry: {registry_address}:{registry_port}")
-
-    # Verify S3 model exists
-    if model_s3_bucket and model_s3_access_key and model_s3_secret_key:
-        print("\n[Verifying S3 model...]")
-        import boto3
-        from botocore.client import Config
-        s3 = boto3.client(
-            "s3",
-            endpoint_url=model_s3_endpoint,
-            aws_access_key_id=model_s3_access_key,
-            aws_secret_access_key=model_s3_secret_key,
-            config=Config(signature_version="s3v4"),
-        )
-        try:
-            response = s3.list_objects_v2(Bucket=model_s3_bucket, Prefix=model_s3_key)
-            files = response.get("Contents", [])
-            print(f"  Found {len(files)} files in S3")
-            for obj in files[:5]:
-                print(f"    - {obj['Key']}")
-        except Exception as e:
-            print(f"  WARNING: S3 verification failed: {e}")
 
     # Register to Model Registry
     model_id = "SKIPPED"
@@ -103,10 +87,51 @@ def model_registry(
 
         # Collect metrics into metadata if provided
         version_metadata = {}
+        eval_summary = {}
         try:
+            # Add base model info
+            if base_model_name:
+                version_metadata["base_model"] = base_model_name
+
+            # Add training metrics (hyperparameters)
             if input_metrics and getattr(input_metrics, "metadata", None):
-                version_metadata = dict(input_metrics.metadata)
-        except Exception:
+                print("\n  Training Hyperparameters:")
+                for k, v in input_metrics.metadata.items():
+                    if k not in ("display_name", "store_session_info"):
+                        version_metadata[f"training_{k}"] = str(v)
+                        print(f"    - {k}: {v}")
+
+            # Add evaluation metrics
+            if eval_metrics and getattr(eval_metrics, "metadata", None):
+                print("\n  Evaluation Metrics:")
+                for k, v in eval_metrics.metadata.items():
+                    if k not in ("display_name", "store_session_info"):
+                        version_metadata[f"eval_{k}"] = str(v)
+                        # Extract primary accuracy metrics for summary
+                        if "_acc," in k or "_acc_norm," in k:
+                            if "stderr" not in k:
+                                eval_summary[k] = v
+                                print(f"    - {k}: {v:.4f}" if isinstance(v, float) else f"    - {k}: {v}")
+
+                # Print eval config
+                eval_tasks = eval_metrics.metadata.get("eval_tasks", "")
+                eval_duration = eval_metrics.metadata.get("eval_duration_seconds", "")
+                if eval_tasks:
+                    print(f"    - Tasks: {eval_tasks}")
+                if eval_duration:
+                    print(f"    - Duration: {eval_duration}s")
+
+            # Add summary of best metrics
+            if eval_summary:
+                # Find the best accuracy metric
+                best_metric = max(eval_summary.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0)
+                version_metadata["eval_best_metric"] = best_metric[0]
+                version_metadata["eval_best_score"] = str(best_metric[1])
+                print(f"\n  Best Eval Score: {best_metric[0]} = {best_metric[1]:.4f}" if isinstance(best_metric[1], float) else f"\n  Best: {best_metric}")
+
+            print(f"\n  Total metadata keys: {len(version_metadata)}")
+        except Exception as e:
+            print(f"  Warning: Could not extract metrics: {e}")
             version_metadata = {}
 
         try:

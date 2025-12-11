@@ -21,7 +21,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from components.dataset_download import dataset_download
 from components.training import train_model
-from components.eval_lm_eval import eval_lm_eval
+from components.eval_lm_eval import universal_llm_evaluator
 from components.model_registry import model_registry
 
 # =============================================================================
@@ -55,196 +55,278 @@ PVC_ACCESS_MODES = ["ReadWriteMany"]
 )
 def distributed_training_pipeline(
     # =========================================================================
-    # RUNTIME PARAMETERS
+    # DATASET PARAMETERS
     # =========================================================================
-    # These parameters can be configured when creating a pipeline run.
-    # They are passed to components at runtime, unlike the PVC config above.
-    # =========================================================================
-
-    # -------------------------------------------------------------------------
-    # Dataset Download Parameters (Required)
-    # -------------------------------------------------------------------------
-    # Dataset URI with scheme (hf://, s3://, pvc://, or absolute path)
-    # Examples:
-    #   - hf://HuggingFaceH4/ultrachat_200k
-    #   - s3://my-bucket/datasets/chat_data.jsonl
-    #   - pvc://datasets/local_data.jsonl
     dataset_uri: str,
+    # ^ Dataset URI with scheme. Supported formats:
+    #   - hf://HuggingFaceH4/ultrachat_200k (HuggingFace dataset)
+    #   - s3://bucket/path/file.jsonl (AWS S3, credentials from minio-secret)
+    #   - https://url/file.jsonl (HTTP/HTTPS direct link)
+    #   - pvc://path/file.jsonl or /absolute/path (local/PVC file)
 
-    # -------------------------------------------------------------------------
-    # Shared/Pipeline-wide Parameters
-    # -------------------------------------------------------------------------
-    shared_log_file: str = "pipeline_log.txt",  # Shared log file name
+    dataset_hf_token: str = "",
+    # ^ HuggingFace token for gated/private datasets (e.g., Llama datasets).
 
-    # Training Component Parameters (prefixed with training_)
-    training_algorithm: str = "OSFT",
-    training_base_model: str = "Qwen/Qwen2.5-1.5B-Instruct",
-    
-    # Hyperparameters
-    training_unfreeze_rank_ratio: float = 0.25,
-    training_effective_batch_size: int = 128,
-    training_num_epochs: int = 1,
-    training_learning_rate: float = 5e-6,
-    training_backend: str = "mini-trainer",
-    training_lr_warmup_steps: int = 0,
-    training_save_samples: int = None,
-    training_accelerate_full_state_at_epoch: bool = None,
-    training_seed: int = 42,
-    training_max_tokens_per_gpu: int = 64000,
-    training_max_seq_len: int = 8192,
-    training_target_patterns: str = "",
+    dataset_split_ratio: float = 0.9,
+    # ^ Ratio for train/eval split. 0.9 = 90% train, 10% eval. 0.8 = 80/20.
 
-    # Resources
-    training_resources_num_nodes: int = 2,
-    training_resource_cpu_per_worker: str = "8",
-    training_resource_gpu_per_worker: int = 1,
-    training_resource_memory_per_worker: str = "32Gi",
-    training_resource_num_procs_per_worker: int = 1,
-    training_resource_num_workers: int = 1,
+    dataset_subset_count: int = 0,
+    # ^ Number of examples to use from dataset. 0 = use all.
+    #   Useful for quick testing (e.g., 100) or validation runs (e.g., 1000).
 
-    training_use_liger: bool = True,
-    training_use_processed_dataset: bool = None,
-    training_unmask_messages: bool = None,
+    # =========================================================================
+    # TRAINING - Environment & Auth (training_env_*)
+    # =========================================================================
+    training_env_annotations: str = "",
+    # ^ Kubernetes annotations for training pods as comma-delimited key=value pairs.
+
+    training_env_hf_token: str = "",
+    # ^ HuggingFace token for gated models (Llama, Mistral, etc.).
+    #   Leave empty for public models.
+
+    training_env_labels: str = "",
+    # ^ Kubernetes labels for training pods as comma-delimited key=value pairs.
+
+    training_env_vars: str = "",
+    # ^ Additional environment variables as comma-delimited key=value pairs.
+    #   Example: "NCCL_DEBUG=INFO,CUDA_VISIBLE_DEVICES=0,1"
+
+    # =========================================================================
+    # TRAINING - Hyperparameters (training_hyper_*)
+    # =========================================================================
+    training_hyper_batch_size: int = 128,
+    # ^ Effective batch size (samples per optimizer step). Automatically handles
+    #   gradient accumulation. Guidance: 1 GPU: 16-32, 2 GPUs: 32-64, 4 GPUs: 64-128.
+
+    training_hyper_epochs: int = 1,
+    # ^ Number of training epochs. 1 = quick test, 3-5 = better convergence.
+
+    training_hyper_learning_rate: float = 5e-6,
+    # ^ Learning rate. Typical range: 1e-6 to 1e-4. 5e-6 is good for OSFT.
+
+    training_hyper_max_seq_len: int = 8192,
+    # ^ Maximum sequence length in tokens. Common values: 2048, 4096, 8192.
+
+    training_hyper_max_tokens_per_gpu: int = 64000,
+    # ^ Maximum tokens per GPU per batch (memory hard-cap). Used to auto-calculate
+    #   micro-batch size and gradient accumulation while avoiding OOMs.
+
+    training_hyper_seed: int = 42,
+    # ^ Random seed for reproducibility.
+
+    training_hyper_target_patterns: str = "",
+    # ^ [OSFT] Comma-separated patterns for selecting modules to train.
+    #   Leave empty for default selection.
+
+    # =========================================================================
+    # TRAINING - Learning Rate Schedule (training_lr_*)
+    # =========================================================================
     training_lr_scheduler: str = "cosine",
+    # ^ Learning rate scheduler: "cosine", "linear", "constant".
+
     training_lr_scheduler_kwargs: str = "",
-    
-    training_checkpoint_at_epoch: bool = False,
-    training_save_final_checkpoint: bool = True,
-    # Runtime/resource/env parameters exposed for training
-    training_envs: str = "",
-    training_metadata_labels: str = "",
-    training_metadata_annotations: str = "",
+    # ^ Additional scheduler parameters as comma-delimited key=value pairs.
+    #   Example: "num_cycles=1,num_warmup_steps=100"
 
-    # -------------------------------------------------------------------------
-    # Dataset Download Parameters (Optional)
-    # -------------------------------------------------------------------------
-    dataset_train_split_ratio: float = 0.9,  # Train split ratio (0.9 = 90/10, 0.8 = 80/20)
-    dataset_hf_token: str = "",  # HuggingFace token for gated/private datasets
+    training_lr_warmup_steps: int = 0,
+    # ^ Number of warmup steps before reaching full learning rate.
 
-    # -------------------------------------------------------------------------
-    # Training Parameters (EXAMPLE)
-    # -------------------------------------------------------------------------
-    # Hyperparameters:
-    # training_hyperparam_epochs: int = 3,  # Number of training epochs
-    # training_hyperparam_batch_size: int = 32,  # Training batch size
-    # training_hyperparam_learning_rate: float = 5e-5,  # Learning rate
-    # training_hyperparam_use_liger: bool = False,  # Enable Liger kernel optimization
-    # training_hyperparam_warmup_steps: int = 100,  # Warmup steps for scheduler
-    #
-    # Resource Configuration:
-    # training_resource_cpu: str = "4",  # CPU cores to request
-    # training_resource_memory: str = "16Gi",  # Memory to request
-    # training_resource_gpu: int = 1,  # Number of GPUs to request
-    # training_resource_gpu_type: str = "nvidia.com/gpu",  # GPU resource type
+    # =========================================================================
+    # TRAINING - Model Configuration (training_model_*)
+    # =========================================================================
+    training_model_algorithm: str = "OSFT",
+    # ^ Training algorithm: "OSFT" (Orthogonal Subspace Fine-Tuning for continual
+    #   learning) or "SFT" (Standard Fine-Tuning).
 
-    # -------------------------------------------------------------------------
-    # Evaluation Parameters (EXAMPLE)
-    # -------------------------------------------------------------------------
-    # Task Configuration:
-    # eval_task_names: str = "hellaswag,arc_easy",  # Comma-separated lm-eval tasks
-    # eval_task_limit: int = 100,  # Limit samples per task (use None for all)
-    #
-    # Inference Settings:
-    # eval_inference_batch_size: int = 8,  # Evaluation batch size
-    # eval_inference_max_tokens: int = 256,  # Max tokens to generate
+    training_model_backend: str = "mini-trainer",
+    # ^ Training backend implementation: "mini-trainer" or "instructlab-training".
 
-    # -------------------------------------------------------------------------
-    # S3 / Model location
-    # -------------------------------------------------------------------------
-    model_s3_bucket: str = "",
-    model_s3_key: str = "",
-    model_s3_endpoint: str = "",
-    model_s3_access_key: str = "",
-    model_s3_secret_key: str = "",
+    training_model_base: str = "Qwen/Qwen2.5-1.5B-Instruct",
+    # ^ HuggingFace model ID or path to fine-tune.
 
-    # -------------------------------------------------------------------------
-    # Model Registry (SDK client)
-    # -------------------------------------------------------------------------
+    training_model_unfreeze_ratio: float = 0.25,
+    # ^ [OSFT only] Ratio of parameters to unfreeze. Lower = more efficient,
+    #   higher = more capacity. Typical range: 0.1-0.5.
+
+    # =========================================================================
+    # TRAINING - Optimizations (training_opt_*)
+    # =========================================================================
+    training_opt_processed_dataset: bool = False,
+    # ^ Set to True if dataset is already tokenized with input_ids.
+    #   False (default) = process raw chat data.
+
+    training_opt_unmask_messages: bool = False,
+    # ^ Whether to unmask messages during chat data processing.
+
+    training_opt_use_liger: bool = True,
+    # ^ Enable Liger kernel optimizations for faster training.
+    #   Requires Liger kernels in the training image.
+
+    # =========================================================================
+    # TRAINING - Resources (training_res_*)
+    # =========================================================================
+    training_res_cpu: str = "8",
+    # ^ CPU cores per training worker pod.
+
+    training_res_gpu: int = 1,
+    # ^ GPUs per training worker pod. Usually equals num_procs.
+
+    training_res_memory: str = "32Gi",
+    # ^ Memory per training worker pod.
+
+    training_res_num_procs: int = 1,
+    # ^ Number of processes (ranks) per worker. Usually equals GPUs per worker.
+
+    training_res_num_workers: int = 1,
+    # ^ Total number of worker pods. 1 = single-node, 2+ = multi-node distributed.
+
+    # =========================================================================
+    # TRAINING - Saving & Checkpoints (training_save_*)
+    # =========================================================================
+    training_save_at_epoch: bool = False,
+    # ^ Save a checkpoint at the end of each epoch.
+
+    training_save_final: bool = True,
+    # ^ Save the final model checkpoint after training completes.
+
+    training_save_full_state: bool = False,
+    # ^ Save full Accelerate state at each epoch for resumption capability.
+
+    training_save_samples: int = 0,
+    # ^ Number of samples to save during training. 0 disables.
+
+    # =========================================================================
+    # EVALUATION - Configuration (eval_cfg_*)
+    # =========================================================================
+    eval_cfg_batch_size: str = "auto",
+    # ^ Batch size for evaluation. "auto" lets vLLM determine optimal size.
+    #   Can also be an integer like "8" or "16".
+
+    eval_cfg_limit: int = -1,
+    # ^ Maximum samples per task. -1 = evaluate all samples.
+    #   Use smaller values (e.g., 100) for quick validation.
+
+    eval_cfg_log_samples: bool = True,
+    # ^ Whether to log individual sample predictions to output artifact.
+
+    eval_cfg_verbosity: str = "INFO",
+    # ^ Logging verbosity level: "DEBUG", "INFO", "WARNING", "ERROR".
+
+    # =========================================================================
+    # EVALUATION - Model & Generation (eval_model_*, eval_gen_*)
+    # =========================================================================
+    eval_gen_kwargs: dict = {},
+    # ^ Generation kwargs for generative tasks.
+    #   Example: {"max_tokens": 256, "temperature": 0.0}
+
+    eval_model_args: dict = {},
+    # ^ Additional model arguments as dictionary.
+    #   Example: {"dtype": "float16", "gpu_memory_utilization": 0.9}
+
+    # =========================================================================
+    # EVALUATION - Tasks (eval_task_*)
+    # =========================================================================
+    eval_task_names: list = ["arc_easy"],
+    # ^ List of lm-eval task names to run.
+    #   Examples: ["mmlu"], ["gsm8k", "arc_easy"], ["hellaswag", "winogrande"]
+    #   See: https://github.com/EleutherAI/lm-evaluation-harness/tree/main/lm_eval/tasks
+
+    # =========================================================================
+    # MODEL REGISTRY - Connection (registry_*)
+    # =========================================================================
     registry_address: str = "",
+    # ^ Model registry server address. Leave empty to skip registration.
+    #   Example: "model-registry.kubeflow.svc.cluster.local"
+
     registry_port: int = 8080,
-    model_name: str = "fine-tuned-model",
-    model_version: str = "1.0.0",
-    model_format_name: str = "pytorch",
-    model_format_version: str = "1.0",
-    model_description: str = "",
-    author: str = "pipeline",
+    # ^ Model registry server port.
+
+    # =========================================================================
+    # MODEL REGISTRY - Metadata (registry_model_*)
+    # =========================================================================
+    registry_model_author: str = "pipeline",
+    # ^ Author/owner name for the registered model.
+
+    registry_model_description: str = "",
+    # ^ Human-readable description of the model.
+
+    registry_model_format_name: str = "pytorch",
+    # ^ Model format name (e.g., "pytorch", "onnx", "tensorflow").
+
+    registry_model_format_version: str = "1.0",
+    # ^ Model format version.
+
+    registry_model_name: str = "fine-tuned-model",
+    # ^ Name for the registered model in the registry.
+
+    registry_model_version: str = "1.0.0",
+    # ^ Version string for the model.
+
+    # =========================================================================
+    # SHARED PARAMETERS
+    # =========================================================================
+    shared_log_file: str = "pipeline_log.txt",
+    # ^ Name of the shared log file on PVC for tracking pipeline progress.
 ):
     """Distributed Training Pipeline with shared workspace PVC.
 
-    This pipeline demonstrates a 4-stage workflow where all components share
-    a workspace PVC for data exchange:
-
-    1. Dataset Download - Prepares the training dataset
-    2. Training - Trains the model
-    3. Eval with lm-eval - Evaluates the trained model
-    4. Model Registry - Registers the model and prints execution log
-
-    Note:
-        PVC size and storage class are COMPILE-TIME settings defined at the top
-        of this file. They cannot be changed at runtime because KFP's workspace
-        feature bakes these into the pipeline specification during compilation.
-        To change PVC settings, modify PVC_SIZE/PVC_STORAGE_CLASS and recompile.
+    A 4-stage ML pipeline for fine-tuning and evaluating language models:
+    1) Dataset Download - Prepares training data from HuggingFace, S3, HTTP, or PVC
+    2) Training - Fine-tunes using OSFT or SFT with distributed training
+    3) Evaluation - Evaluates with lm-eval harness (MMLU, GSM8K, etc.)
+    4) Model Registry - Registers trained model to Kubeflow Model Registry
 
     Args:
-        shared_log_file: Name of the shared log file for tracking completion.
-
-        Algorithm common:
-            training_algorithm: Training algorithm. "OSFT" = Orthogonal Subspace Fine-Tuning (continual learning), "SFT" = Standard Fine-Tuning.
-            training_base_model: model_path: Path to the model to fine-tune
-            training_learning_rate: learning_rate: Learning rate for training
-            training_effective_batch_size: effective_batch_size: Effective batch size for training
-            training_max_seq_len: max_seq_len: Maximum sequence length
-            training_max_tokens_per_gpu: max_tokens_per_gpu: Maximum tokens per GPU in a mini-batch (hard-cap for memory to avoid OOMs). Used to automatically calculate mini-batch size and gradient accumulation to maintain the desired effective_batch_size while staying within memory limits.
-            training_num_epochs: num_epochs: Number of training epochs
-            training_lr_scheduler: lr_scheduler: Name of the PyTorch learning rate scheduler to use
-            training_lr_warmup_steps: warmup_steps: Number of warmup steps
-            training_lr_scheduler_kwargs: lr_scheduler_kwargs: Additional scheduler parameters (comma-delimited key=value pairs)
-            training_accelerate_full_state_at_epoch: accelerate_full_state_at_epoch: Whether to save full state at epoch for automatic checkpoint resumption
-            training_checkpoint_at_epoch: checkpoint_at_epoch: Whether to checkpoint at each epoch
-            training_save_samples: save_samples: Number of samples to save after training (0 disables saving based on sample count)
-            training_backend: backend: Backend implementation to use (default: "instructlab-training")
-            training_target_patterns: target_patterns: Patterns to match when selecting modules for OSFT
-            training_use_liger: use_liger: Whether to use Liger kernels for training
-            training_use_processed_dataset: use_processed_dataset: Whether to use the processed dataset
-            training_unmask_messages: unmask_messages: Whether to unmask messages during data processing
-
-        Notes on paths (component-resolved):
-            data_path: Path to the training data (resolved by component).
-            ckpt_output_dir: Directory to save checkpoints (managed by component under the PVC).
-            data_output_dir: Directory to save processed data (optional; component-managed when not provided).
-
-    Example Parameters (uncomment in function signature to use):
-
-        Dataset Download:
-            dataset_uri: Dataset URI with scheme. Supported formats:
-                - HuggingFace: hf://dataset-name or dataset-name
-                - AWS S3: s3://bucket/path/file.jsonl (credentials from Kubernetes secret)
-                - HTTP/HTTPS: https://... (e.g., MinIO shared links with embedded credentials)
-                - Local/PVC: pvc://path/file.jsonl or /absolute/path/file.jsonl
-            dataset_train_split_ratio: Train/eval split ratio (0.9 = 90/10, 0.8 = 80/20).
-            dataset_hf_token: HuggingFace token for gated/private datasets.
-
-        Training - Hyperparameters:
-            training_hyperparam_epochs: Number of training epochs.
-            training_hyperparam_batch_size: Batch size for training.
-            training_hyperparam_learning_rate: Learning rate for optimizer.
-            training_hyperparam_use_liger: Enable Liger kernel optimization.
-        Training - Resource Configuration:
-            training_resource_cpu: CPU cores to request.
-            training_resource_memory: Memory to request.
-            training_resource_gpu: Number of GPUs to request.
-
-        Evaluation - Task Configuration:
-            eval_task_names: Comma-separated list of lm-eval tasks.
-            eval_task_limit: Maximum samples per evaluation task.
-        Evaluation - Inference Settings:
-            eval_inference_batch_size: Batch size for evaluation.
-
-        Model Registry - Model Metadata:
-            registry_model_name: Name for the model in the registry.
-            registry_model_version: Version string for the model.
-        Model Registry - Connection:
-            registry_connection_endpoint: Model registry API endpoint.
+        dataset_uri: Dataset URI (hf://, s3://, https://, pvc://, or absolute path)
+        dataset_hf_token: HuggingFace token for gated/private datasets
+        dataset_split_ratio: Train/eval split ratio (0.9 = 90% train, 10% eval)
+        dataset_subset_count: Number of examples to use (0 = all)
+        training_env_annotations: K8s annotations for training pods (key=val,...)
+        training_env_hf_token: HuggingFace token for gated models (Llama, Mistral)
+        training_env_labels: K8s labels for training pods (key=val,...)
+        training_env_vars: Additional env vars (KEY=VAL,KEY=VAL)
+        training_hyper_batch_size: Effective batch size (samples per optimizer step)
+        training_hyper_epochs: Number of training epochs
+        training_hyper_learning_rate: Learning rate (typical: 1e-6 to 1e-4)
+        training_hyper_max_seq_len: Maximum sequence length in tokens
+        training_hyper_max_tokens_per_gpu: Max tokens per GPU (memory cap)
+        training_hyper_seed: Random seed for reproducibility
+        training_hyper_target_patterns: OSFT module patterns (comma-separated)
+        training_lr_scheduler: LR scheduler type (cosine, linear, constant)
+        training_lr_scheduler_kwargs: Extra scheduler params (key=val,...)
+        training_lr_warmup_steps: Warmup steps before full learning rate
+        training_model_algorithm: Training algorithm - OSFT (continual learning) or SFT
+        training_model_backend: Training backend - mini-trainer or instructlab-training
+        training_model_base: HuggingFace model ID or path to fine-tune
+        training_model_unfreeze_ratio: OSFT ratio of parameters to unfreeze (0.1-0.5)
+        training_opt_processed_dataset: True if dataset already has input_ids (False=process raw)
+        training_opt_unmask_messages: Unmask messages during chat data processing
+        training_opt_use_liger: Enable Liger kernel optimizations
+        training_res_cpu: CPU cores per training worker pod
+        training_res_gpu: GPUs per training worker pod
+        training_res_memory: Memory per training worker pod (e.g., 32Gi)
+        training_res_num_procs: Processes per worker (usually equals GPUs)
+        training_res_num_workers: Total worker pods (1=single-node, 2+=distributed)
+        training_save_at_epoch: Save checkpoint at end of each epoch
+        training_save_final: Save final model checkpoint
+        training_save_full_state: Save full Accelerate state for resumption
+        training_save_samples: Number of samples to save (0 disables)
+        eval_cfg_batch_size: Eval batch size (auto or integer)
+        eval_cfg_limit: Max samples per task (-1 = all)
+        eval_cfg_log_samples: Log individual sample predictions
+        eval_cfg_verbosity: Logging level (DEBUG, INFO, WARNING, ERROR)
+        eval_gen_kwargs: Generation kwargs dict (max_tokens, temperature)
+        eval_model_args: Model init args dict (dtype, gpu_memory_utilization)
+        eval_task_names: List of lm-eval tasks (mmlu, gsm8k, arc_easy, etc.)
+        registry_address: Model registry server address (empty = skip)
+        registry_port: Model registry server port
+        registry_model_author: Author/owner name for registered model
+        registry_model_description: Human-readable model description
+        registry_model_format_name: Model format (pytorch, onnx, tensorflow)
+        registry_model_format_version: Model format version
+        registry_model_name: Name for the registered model
+        registry_model_version: Version string for the model
+        shared_log_file: Shared log file on PVC for tracking progress
     """
 
     # =========================================================================
@@ -253,7 +335,8 @@ def distributed_training_pipeline(
     dataset_download_task = dataset_download(
         dataset_uri=dataset_uri,
         pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        train_split_ratio=dataset_train_split_ratio,
+        train_split_ratio=dataset_split_ratio,
+        subset_count=dataset_subset_count,
         hf_token=dataset_hf_token,
         shared_log_file=shared_log_file,
     )
@@ -273,43 +356,51 @@ def distributed_training_pipeline(
     # =========================================================================
     # Stage 2: Training
     # =========================================================================
-    # TODO: Pass training parameters to your actual training component
-    # Example: train_model(epochs=training_epochs, batch_size=training_batch_size, 
-    #                      use_liger=training_use_liger, ...)
+    # Pass dataset artifact from download step and all training parameters
     training_task = train_model(
         pvc_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        training_base_model=training_base_model,
-        training_algorithm=training_algorithm,
-        training_unfreeze_rank_ratio=training_unfreeze_rank_ratio,
-        training_effective_batch_size=training_effective_batch_size,
-        training_max_tokens_per_gpu=training_max_tokens_per_gpu,
-        training_max_seq_len=training_max_seq_len,
-        training_learning_rate=training_learning_rate,
-        training_backend=training_backend,
-        training_target_patterns=training_target_patterns,
-        training_seed=training_seed,
-        training_use_liger=training_use_liger,
-        training_use_processed_dataset=training_use_processed_dataset,
-        training_unmask_messages=training_unmask_messages,
+        # Pass dataset artifact from previous step
+        dataset=dataset_download_task.outputs["train_dataset"],
+        # Model and algorithm (training_model_*)
+        training_base_model=training_model_base,
+        training_algorithm=training_model_algorithm,
+        training_unfreeze_rank_ratio=training_model_unfreeze_ratio,
+        training_backend=training_model_backend,
+        # Hyperparameters (training_hyper_*)
+        training_effective_batch_size=training_hyper_batch_size,
+        training_max_tokens_per_gpu=training_hyper_max_tokens_per_gpu,
+        training_max_seq_len=training_hyper_max_seq_len,
+        training_learning_rate=training_hyper_learning_rate,
+        training_target_patterns=training_hyper_target_patterns,
+        training_seed=training_hyper_seed,
+        training_num_epochs=training_hyper_epochs,
+        # Optimizations (training_opt_*)
+        training_use_liger=training_opt_use_liger,
+        training_use_processed_dataset=training_opt_processed_dataset,
+        training_unmask_messages=training_opt_unmask_messages,
+        # Learning rate scheduler (training_lr_*)
         training_lr_scheduler=training_lr_scheduler,
         training_lr_warmup_steps=training_lr_warmup_steps,
-        training_save_samples=training_save_samples,
-        training_accelerate_full_state_at_epoch=training_accelerate_full_state_at_epoch,
         training_lr_scheduler_kwargs=training_lr_scheduler_kwargs,
-        training_checkpoint_at_epoch=training_checkpoint_at_epoch,
-        training_save_final_checkpoint=training_save_final_checkpoint,
-        training_num_epochs=training_num_epochs,
-        training_envs=training_envs,
-        training_resource_cpu_per_worker=training_resource_cpu_per_worker,
-        training_resource_gpu_per_worker=training_resource_gpu_per_worker,
-        training_resource_memory_per_worker=training_resource_memory_per_worker,
-        training_resource_num_procs_per_worker=training_resource_num_procs_per_worker,
-        training_resource_num_workers=training_resource_num_workers,
-        training_metadata_labels=training_metadata_labels,
-        training_metadata_annotations=training_metadata_annotations,
+        # Saving & Checkpointing (training_save_*)
+        training_save_samples=training_save_samples,
+        training_accelerate_full_state_at_epoch=training_save_full_state,
+        training_checkpoint_at_epoch=training_save_at_epoch,
+        training_save_final_checkpoint=training_save_final,
+        # Environment and metadata (training_env_*)
+        training_hf_token=training_env_hf_token,
+        training_envs=training_env_vars,
+        training_metadata_labels=training_env_labels,
+        training_metadata_annotations=training_env_annotations,
+        # Resources (training_res_*)
+        training_resource_cpu_per_worker=training_res_cpu,
+        training_resource_gpu_per_worker=training_res_gpu,
+        training_resource_memory_per_worker=training_res_memory,
+        training_resource_num_procs_per_worker=training_res_num_procs,
+        training_resource_num_workers=training_res_num_workers,
     )
     training_task.set_caching_options(False)
-    training_task.after(dataset_download_task)
+    # Note: .after() not needed - KFP infers order from dataset artifact dependency
     kfp.kubernetes.set_image_pull_policy(training_task, "IfNotPresent")
 
     # Inject Kubernetes credentials for TrainJob creation (from secret)
@@ -327,45 +418,70 @@ def distributed_training_pipeline(
         },
     )
 
+    # Note: HuggingFace token is passed via training_hf_token parameter (optional)
+    # For gated models (Llama, Mistral, etc.), provide the token at runtime
+
     # =========================================================================
     # Stage 3: Evaluation with lm-eval
     # =========================================================================
-    # TODO: Pass evaluation parameters to your actual eval component
-    # Example: evaluate_model(tasks=eval_tasks, batch_size=eval_batch_size, 
-    #                         limit=eval_limit, ...)
-    eval_task = eval_lm_eval(
-        pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        shared_log_file=shared_log_file,
+    eval_task = universal_llm_evaluator(
+        # Pass trained model from training step
+        model_artifact=training_task.outputs["output_model"],
+        # Pass eval dataset from dataset download (for tracking/lineage)
+        eval_dataset=dataset_download_task.outputs["eval_dataset"],
+        # Task configuration (eval_task_*)
+        task_names=eval_task_names,
+        # Configuration (eval_cfg_*)
+        batch_size=eval_cfg_batch_size,
+        limit=eval_cfg_limit,
+        log_samples=eval_cfg_log_samples,
+        verbosity=eval_cfg_verbosity,
+        # Model and generation args (eval_model_*, eval_gen_*)
+        model_args=eval_model_args,
+        gen_kwargs=eval_gen_kwargs,
     )
     eval_task.set_caching_options(False)
-    eval_task.after(training_task)
     kfp.kubernetes.set_image_pull_policy(eval_task, "IfNotPresent")
 
+    # Eval requires GPU for vLLM inference
+    kfp.kubernetes.add_node_selector(eval_task, "nvidia.com/gpu.present", "true")
+    eval_task.set_accelerator_type("nvidia.com/gpu")
+    eval_task.set_accelerator_limit(1)
+
+    # Inject HuggingFace token for model access during evaluation
+    if training_env_hf_token:
+        kfp.kubernetes.use_secret_as_env(
+            task=eval_task,
+            secret_name="hf-token",
+            secret_key_to_env={"HF_TOKEN": "HF_TOKEN"},
+        )
+
     # =========================================================================
-    # Stage 4: Model Registry
+    # Stage 4: Model Registry (waits for both training AND evaluation)
     # =========================================================================
-    # TODO: Pass registry parameters to your actual model registry component
-    # Example: register_model(model_name=registry_model_name, 
-    #                         version=registry_model_version, endpoint=registry_endpoint, ...)
+    # Register the trained model to Kubeflow Model Registry with eval results
     model_registry_task = model_registry(
         pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        model_s3_bucket=model_s3_bucket,
-        model_s3_key=model_s3_key,
-        model_s3_endpoint=model_s3_endpoint,
-        model_s3_access_key=model_s3_access_key,
-        model_s3_secret_key=model_s3_secret_key,
+        # Pass model artifact from training
+        input_model=training_task.outputs["output_model"],
+        input_metrics=training_task.outputs["output_metrics"],
+        # Pass evaluation results (this creates dependency on eval completing first)
+        eval_metrics=eval_task.outputs["output_metrics"],
+        eval_results=eval_task.outputs["output_results"],
+        # Registry connection
         registry_address=registry_address,
         registry_port=registry_port,
-        model_name=model_name,
-        model_version=model_version,
-        model_format_name=model_format_name,
-        model_format_version=model_format_version,
-        model_description=model_description,
-        author=author,
+        # Registry model metadata (registry_model_*)
+        model_name=registry_model_name,
+        model_version=registry_model_version,
+        model_format_name=registry_model_format_name,
+        model_format_version=registry_model_format_version,
+        model_description=registry_model_description,
+        author=registry_model_author,
         shared_log_file=shared_log_file,
     )
     model_registry_task.set_caching_options(False)
-    model_registry_task.after(eval_task)
+    # Dependency on eval_task is automatic via eval_metrics/eval_results artifacts
     kfp.kubernetes.set_image_pull_policy(model_registry_task, "IfNotPresent")
 
 
