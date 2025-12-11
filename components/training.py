@@ -16,6 +16,7 @@ from typing import Optional
     base_image="quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438",
     packages_to_install=[
         "kubernetes",
+        "olot",
     ],
     task_config_passthroughs=[
         dsl.TaskConfigField.RESOURCES,
@@ -161,7 +162,7 @@ def train_model(
     Returns:
         Status message string.
     """
-    import os, sys, json, time, logging, re
+    import os, sys, json, time, logging, re, subprocess, shutil
     from typing import Dict, List, Tuple, Optional as _Optional
 
     # ------------------------------
@@ -303,7 +304,6 @@ def train_model(
     # Dataset resolution
     # ------------------------------
     from datasets import load_dataset, load_from_disk, Dataset
-    import shutil
 
     resolved_dataset_dir = os.path.join(pvc_path, "dataset", "train")
     os.makedirs(resolved_dataset_dir, exist_ok=True)
@@ -412,6 +412,119 @@ def train_model(
         # Leave jsonl_path as default; downstream will fallback to directory if file not present
 
     # ------------------------------
+    # Model resolution (supports HF ID/local path or oci:// registry ref)
+    # ------------------------------
+    def _skopeo_copy_oci_to_layout(oci_ref: str, layout_dir: str) -> None:
+        """Use skopeo to copy a registry image to an OCI layout directory."""
+        os.makedirs(layout_dir, exist_ok=True)
+        # Clean previous blobs for idempotency if empty or stale
+        try:
+            if os.path.isdir(layout_dir) and any(os.scandir(layout_dir)):
+                logger.info(f"OCI layout dir already exists at {layout_dir}")
+        except Exception:
+            pass
+        # skopeo syntax: skopeo copy docker://REF oci:LAYOUT:TAG
+        # We do not pass auth by default; rely on mounted DOCKER_CONFIG/REGISTRY_AUTH_FILE.
+        cmd = ["skopeo", "copy", "-v", f"docker://{oci_ref}", f"oci:{layout_dir}:latest"]
+        logger.info(f"Running: {' '.join(cmd)}")
+        res = subprocess.run(cmd, text=True, capture_output=True)
+        if res.returncode != 0:
+            stderr = (res.stderr or "").strip()
+            logger.error(f"skopeo copy failed (exit={res.returncode}): {stderr}")
+            if "unauthorized" in stderr.lower() or "authentication required" in stderr.lower():
+                logger.error("Authentication error detected pulling from registry. "
+                             "Mount a docker config.json as DOCKER_CONFIG or provide REGISTRY_AUTH_FILE.")
+            res.check_returncode()
+        else:
+            # Stream some of the output to logs for progress visibility
+            out_preview = "\n".join((res.stdout or "").splitlines()[-20:])
+            if out_preview:
+                logger.info(f"skopeo copy output (tail):\n{out_preview}")
+
+    def _olot_extract_models_from_layout(layout_dir: str, out_dir: str) -> List[str]:
+        """Extract only '/models' contents from the OCI layout into out_dir using olot."""
+        try:
+            from olot.basics import crawl_ocilayout_blobs_to_extract
+        except Exception as e:
+            raise RuntimeError(f"olot is required but failed to import: {e}")
+        os.makedirs(out_dir, exist_ok=True)
+        logger.info(f"Extracting '/models' from OCI layout {layout_dir} to {out_dir}")
+        extracted = crawl_ocilayout_blobs_to_extract(layout_dir, out_dir, tar_filter_dir="/models")
+        logger.info(f"olot extraction complete. Extracted entries: {len(extracted)}")
+        return extracted
+
+    def _discover_hf_model_dir(root: str) -> _Optional[str]:
+        """Find a Hugging Face model directory containing config.json, weights, and tokenizer."""
+        weight_candidates = {
+            "pytorch_model.bin",
+            "pytorch_model.bin.index.json",
+            "model.safetensors",
+            "model.safetensors.index.json",
+        }
+        tokenizer_candidates = {"tokenizer.json", "tokenizer.model"}
+        for dirpath, _dirnames, filenames in os.walk(root):
+            fn = set(filenames)
+            if "config.json" in fn and (fn & weight_candidates) and (fn & tokenizer_candidates):
+                return dirpath
+        return None
+
+    def _log_dir_tree(root: str, max_depth: int = 3, max_entries: int = 800) -> None:
+        """Compact tree logger for debugging large directories."""
+        try:
+            if not (root and os.path.isdir(root)):
+                logger.info(f"(tree) Path is not a directory: {root}")
+                return
+            logger.info(f"(tree) {root} (max_depth={max_depth}, max_entries={max_entries})")
+            total = 0
+            root_depth = root.rstrip(os.sep).count(os.sep)
+            for dirpath, dirnames, filenames in os.walk(root):
+                depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+                if depth >= max_depth:
+                    dirnames[:] = []
+                indent = "  " * depth
+                logger.info(f"(tree){indent}{os.path.basename(dirpath) or dirpath}/")
+                total += 1
+                if total >= max_entries:
+                    logger.info("(tree) ... truncated ...")
+                    return
+                for fname in sorted(filenames)[:50]:
+                    logger.info(f"(tree){indent}  {fname}")
+                    total += 1
+                    if total >= max_entries:
+                        logger.info("(tree) ... truncated ...")
+                        return
+        except Exception as _e:
+            logger.warning(f"Failed to render directory tree for {root}: {_e}")
+
+    resolved_model_path: str = training_base_model
+    if isinstance(training_base_model, str) and training_base_model.startswith("oci://"):
+        # Strip scheme and perform skopeo copy to OCI layout on PVC
+        ref_no_scheme = training_base_model[len("oci://") :]
+        layout_dir = os.path.join(pvc_path, "model-oci")
+        model_out_dir = os.path.join(pvc_path, "model")
+        # Clean output directory for a fresh extraction
+        try:
+            if os.path.isdir(model_out_dir):
+                shutil.rmtree(model_out_dir)
+        except Exception:
+            pass
+        _skopeo_copy_oci_to_layout(ref_no_scheme, layout_dir)
+        extracted = _olot_extract_models_from_layout(layout_dir, model_out_dir)
+        if not extracted:
+            logger.warning("No files extracted from '/models' in the OCI artifact; model discovery may fail.")
+        _log_dir_tree(model_out_dir, max_depth=3, max_entries=800)
+        # Typical extraction path is '<out_dir>/models/...'
+        candidate_root = os.path.join(model_out_dir, "models")
+        hf_dir = _discover_hf_model_dir(candidate_root if os.path.isdir(candidate_root) else model_out_dir)
+        if hf_dir:
+            logger.info(f"Detected HuggingFace model directory: {hf_dir}")
+            resolved_model_path = hf_dir
+        else:
+            logger.warning("Failed to detect a HuggingFace model directory after extraction; "
+                           "continuing with model_out_dir (may fail downstream).")
+            resolved_model_path = model_out_dir
+
+    # ------------------------------
     # Training (placeholder for TrainingHubTrainer)
     # ------------------------------
     checkpoints_dir = os.path.join(pvc_path, "checkpoints")
@@ -471,7 +584,7 @@ def train_model(
         def _build_params() -> Dict[str, object]:
             """Build OSFT/SFT parameter set for TrainingHub."""
             base = {
-                "model_path": training_base_model,
+                "model_path": resolved_model_path,
                 # Prefer JSONL export when available; fallback to resolved directory
                 "data_path": jsonl_path if os.path.exists(jsonl_path) else resolved_dataset_dir,
                 "effective_batch_size": int(training_effective_batch_size if training_effective_batch_size is not None else 128),

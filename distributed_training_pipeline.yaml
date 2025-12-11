@@ -799,7 +799,7 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'kubernetes'\
-          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ 'olot'  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
           $0\" \"$@\"\n"
         - sh
@@ -909,12 +909,12 @@ deploymentSpec:
           \ Whether to save full state at epoch for automatic checkpoint resumption\n\
           \n        checkpoint_at_epoch: Whether to checkpoint at each epoch\n\n \
           \   Returns:\n        Status message string.\n    \"\"\"\n    import os,\
-          \ sys, json, time, logging, re\n    from typing import Dict, List, Tuple,\
-          \ Optional as _Optional\n\n    # ------------------------------\n    # Logging\
-          \ configuration\n    # ------------------------------\n    def _setup_logger()\
-          \ -> logging.Logger:\n        \"\"\"Configure and return a logger for this\
-          \ component.\"\"\"\n        _logger = logging.getLogger(\"train_model\"\
-          )\n        _logger.setLevel(logging.INFO)\n        if not _logger.handlers:\n\
+          \ sys, json, time, logging, re, subprocess, shutil\n    from typing import\
+          \ Dict, List, Tuple, Optional as _Optional\n\n    # ------------------------------\n\
+          \    # Logging configuration\n    # ------------------------------\n   \
+          \ def _setup_logger() -> logging.Logger:\n        \"\"\"Configure and return\
+          \ a logger for this component.\"\"\"\n        _logger = logging.getLogger(\"\
+          train_model\")\n        _logger.setLevel(logging.INFO)\n        if not _logger.handlers:\n\
           \            _ch = logging.StreamHandler(sys.stdout)\n            _ch.setLevel(logging.INFO)\n\
           \            _ch.setFormatter(logging.Formatter(\"%(asctime)s - %(levelname)s\
           \ - %(message)s\"))\n            _logger.addHandler(_ch)\n        return\
@@ -990,40 +990,39 @@ deploymentSpec:
           HF_TOKEN\"] = training_hf_token.strip()\n        logger.info(\"HF_TOKEN\
           \ added to environment (for gated model access)\")\n\n    # ------------------------------\n\
           \    # Dataset resolution\n    # ------------------------------\n    from\
-          \ datasets import load_dataset, load_from_disk, Dataset\n    import shutil\n\
-          \n    resolved_dataset_dir = os.path.join(pvc_path, \"dataset\", \"train\"\
-          )\n    os.makedirs(resolved_dataset_dir, exist_ok=True)\n\n    def is_local_path(p:\
-          \ str) -> bool:\n        return bool(p) and os.path.exists(p)\n\n    def\
-          \ looks_like_url(p: str) -> bool:\n        return p.startswith(\"s3://\"\
-          ) or p.startswith(\"http://\") or p.startswith(\"https://\")\n\n    def\
-          \ _resolve_dataset(input_dataset: _Optional[dsl.Input[dsl.Dataset]], out_dir:\
-          \ str) -> None:\n        \"\"\"Resolve dataset with preference: existing\
-          \ PVC dir > input artifact > remote artifact/HF > default.\n        Remote\
-          \ path is read from input_dataset.metadata['artifact_path'] if present.\
-          \ If metadata['pvc_dir'] exists, prefer it.\n        \"\"\"\n        # 0)\
-          \ If already present (e.g., staged by prior step), keep it\n        if os.path.isdir(out_dir)\
-          \ and any(os.scandir(out_dir)):\n            logger.info(f\"Using existing\
-          \ dataset at {out_dir}\")\n            return\n        # 1) Input artifact\
-          \ (can be a file or directory)\n        if input_dataset and getattr(input_dataset,\
-          \ \"path\", None) and os.path.exists(input_dataset.path):\n            src_path\
-          \ = input_dataset.path\n            if os.path.isdir(src_path):\n      \
-          \          logger.info(f\"Copying input dataset directory from {src_path}\
-          \ to {out_dir}\")\n                shutil.copytree(src_path, out_dir, dirs_exist_ok=True)\n\
-          \            else:\n                # It's a file (e.g., JSONL) - copy to\
-          \ out_dir with appropriate name\n                logger.info(f\"Copying\
-          \ input dataset file from {src_path} to {out_dir}\")\n                dst_file\
-          \ = os.path.join(out_dir, os.path.basename(src_path))\n                #\
-          \ If basename doesn't have extension, assume it's a jsonl file\n       \
-          \         if not os.path.splitext(dst_file)[1]:\n                    dst_file\
-          \ = os.path.join(out_dir, \"train.jsonl\")\n                shutil.copy2(src_path,\
-          \ dst_file)\n                logger.info(f\"Dataset file copied to {dst_file}\"\
-          )\n            return\n        # 2) Remote artifact (S3/HTTP) or HF repo\
-          \ id\n        rp = \"\"\n        try:\n            if input_dataset and\
-          \ hasattr(input_dataset, \"metadata\") and isinstance(input_dataset.metadata,\
-          \ dict):\n                pvc_path_meta = (input_dataset.metadata.get(\"\
-          pvc_path\") or input_dataset.metadata.get(\"pvc_dir\") or \"\").strip()\n\
-          \                if pvc_path_meta and os.path.exists(pvc_path_meta):\n \
-          \                   if os.path.isdir(pvc_path_meta) and any(os.scandir(pvc_path_meta)):\n\
+          \ datasets import load_dataset, load_from_disk, Dataset\n\n    resolved_dataset_dir\
+          \ = os.path.join(pvc_path, \"dataset\", \"train\")\n    os.makedirs(resolved_dataset_dir,\
+          \ exist_ok=True)\n\n    def is_local_path(p: str) -> bool:\n        return\
+          \ bool(p) and os.path.exists(p)\n\n    def looks_like_url(p: str) -> bool:\n\
+          \        return p.startswith(\"s3://\") or p.startswith(\"http://\") or\
+          \ p.startswith(\"https://\")\n\n    def _resolve_dataset(input_dataset:\
+          \ _Optional[dsl.Input[dsl.Dataset]], out_dir: str) -> None:\n        \"\"\
+          \"Resolve dataset with preference: existing PVC dir > input artifact > remote\
+          \ artifact/HF > default.\n        Remote path is read from input_dataset.metadata['artifact_path']\
+          \ if present. If metadata['pvc_dir'] exists, prefer it.\n        \"\"\"\n\
+          \        # 0) If already present (e.g., staged by prior step), keep it\n\
+          \        if os.path.isdir(out_dir) and any(os.scandir(out_dir)):\n     \
+          \       logger.info(f\"Using existing dataset at {out_dir}\")\n        \
+          \    return\n        # 1) Input artifact (can be a file or directory)\n\
+          \        if input_dataset and getattr(input_dataset, \"path\", None) and\
+          \ os.path.exists(input_dataset.path):\n            src_path = input_dataset.path\n\
+          \            if os.path.isdir(src_path):\n                logger.info(f\"\
+          Copying input dataset directory from {src_path} to {out_dir}\")\n      \
+          \          shutil.copytree(src_path, out_dir, dirs_exist_ok=True)\n    \
+          \        else:\n                # It's a file (e.g., JSONL) - copy to out_dir\
+          \ with appropriate name\n                logger.info(f\"Copying input dataset\
+          \ file from {src_path} to {out_dir}\")\n                dst_file = os.path.join(out_dir,\
+          \ os.path.basename(src_path))\n                # If basename doesn't have\
+          \ extension, assume it's a jsonl file\n                if not os.path.splitext(dst_file)[1]:\n\
+          \                    dst_file = os.path.join(out_dir, \"train.jsonl\")\n\
+          \                shutil.copy2(src_path, dst_file)\n                logger.info(f\"\
+          Dataset file copied to {dst_file}\")\n            return\n        # 2) Remote\
+          \ artifact (S3/HTTP) or HF repo id\n        rp = \"\"\n        try:\n  \
+          \          if input_dataset and hasattr(input_dataset, \"metadata\") and\
+          \ isinstance(input_dataset.metadata, dict):\n                pvc_path_meta\
+          \ = (input_dataset.metadata.get(\"pvc_path\") or input_dataset.metadata.get(\"\
+          pvc_dir\") or \"\").strip()\n                if pvc_path_meta and os.path.exists(pvc_path_meta):\n\
+          \                    if os.path.isdir(pvc_path_meta) and any(os.scandir(pvc_path_meta)):\n\
           \                        logger.info(f\"Using pre-staged PVC dataset directory\
           \ at {pvc_path_meta}\")\n                        shutil.copytree(pvc_path_meta,\
           \ out_dir, dirs_exist_ok=True)\n                        return\n       \
@@ -1073,6 +1072,87 @@ deploymentSpec:
           \    except Exception as _e:\n        logger.warning(f\"Failed to export\
           \ JSONL dataset at {resolved_dataset_dir}: {_e}\")\n        # Leave jsonl_path\
           \ as default; downstream will fallback to directory if file not present\n\
+          \n    # ------------------------------\n    # Model resolution (supports\
+          \ HF ID/local path or oci:// registry ref)\n    # ------------------------------\n\
+          \    def _skopeo_copy_oci_to_layout(oci_ref: str, layout_dir: str) -> None:\n\
+          \        \"\"\"Use skopeo to copy a registry image to an OCI layout directory.\"\
+          \"\"\n        os.makedirs(layout_dir, exist_ok=True)\n        # Clean previous\
+          \ blobs for idempotency if empty or stale\n        try:\n            if\
+          \ os.path.isdir(layout_dir) and any(os.scandir(layout_dir)):\n         \
+          \       logger.info(f\"OCI layout dir already exists at {layout_dir}\")\n\
+          \        except Exception:\n            pass\n        # skopeo syntax: skopeo\
+          \ copy docker://REF oci:LAYOUT:TAG\n        # We do not pass auth by default;\
+          \ rely on mounted DOCKER_CONFIG/REGISTRY_AUTH_FILE.\n        cmd = [\"skopeo\"\
+          , \"copy\", \"-v\", f\"docker://{oci_ref}\", f\"oci:{layout_dir}:latest\"\
+          ]\n        logger.info(f\"Running: {' '.join(cmd)}\")\n        res = subprocess.run(cmd,\
+          \ text=True, capture_output=True)\n        if res.returncode != 0:\n   \
+          \         stderr = (res.stderr or \"\").strip()\n            logger.error(f\"\
+          skopeo copy failed (exit={res.returncode}): {stderr}\")\n            if\
+          \ \"unauthorized\" in stderr.lower() or \"authentication required\" in stderr.lower():\n\
+          \                logger.error(\"Authentication error detected pulling from\
+          \ registry. \"\n                             \"Mount a docker config.json\
+          \ as DOCKER_CONFIG or provide REGISTRY_AUTH_FILE.\")\n            res.check_returncode()\n\
+          \        else:\n            # Stream some of the output to logs for progress\
+          \ visibility\n            out_preview = \"\\n\".join((res.stdout or \"\"\
+          ).splitlines()[-20:])\n            if out_preview:\n                logger.info(f\"\
+          skopeo copy output (tail):\\n{out_preview}\")\n\n    def _olot_extract_models_from_layout(layout_dir:\
+          \ str, out_dir: str) -> List[str]:\n        \"\"\"Extract only '/models'\
+          \ contents from the OCI layout into out_dir using olot.\"\"\"\n        try:\n\
+          \            from olot.basics import crawl_ocilayout_blobs_to_extract\n\
+          \        except Exception as e:\n            raise RuntimeError(f\"olot\
+          \ is required but failed to import: {e}\")\n        os.makedirs(out_dir,\
+          \ exist_ok=True)\n        logger.info(f\"Extracting '/models' from OCI layout\
+          \ {layout_dir} to {out_dir}\")\n        extracted = crawl_ocilayout_blobs_to_extract(layout_dir,\
+          \ out_dir, tar_filter_dir=\"/models\")\n        logger.info(f\"olot extraction\
+          \ complete. Extracted entries: {len(extracted)}\")\n        return extracted\n\
+          \n    def _discover_hf_model_dir(root: str) -> _Optional[str]:\n       \
+          \ \"\"\"Find a Hugging Face model directory containing config.json, weights,\
+          \ and tokenizer.\"\"\"\n        weight_candidates = {\n            \"pytorch_model.bin\"\
+          ,\n            \"pytorch_model.bin.index.json\",\n            \"model.safetensors\"\
+          ,\n            \"model.safetensors.index.json\",\n        }\n        tokenizer_candidates\
+          \ = {\"tokenizer.json\", \"tokenizer.model\"}\n        for dirpath, _dirnames,\
+          \ filenames in os.walk(root):\n            fn = set(filenames)\n       \
+          \     if \"config.json\" in fn and (fn & weight_candidates) and (fn & tokenizer_candidates):\n\
+          \                return dirpath\n        return None\n\n    def _log_dir_tree(root:\
+          \ str, max_depth: int = 3, max_entries: int = 800) -> None:\n        \"\"\
+          \"Compact tree logger for debugging large directories.\"\"\"\n        try:\n\
+          \            if not (root and os.path.isdir(root)):\n                logger.info(f\"\
+          (tree) Path is not a directory: {root}\")\n                return\n    \
+          \        logger.info(f\"(tree) {root} (max_depth={max_depth}, max_entries={max_entries})\"\
+          )\n            total = 0\n            root_depth = root.rstrip(os.sep).count(os.sep)\n\
+          \            for dirpath, dirnames, filenames in os.walk(root):\n      \
+          \          depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth\n \
+          \               if depth >= max_depth:\n                    dirnames[:]\
+          \ = []\n                indent = \"  \" * depth\n                logger.info(f\"\
+          (tree){indent}{os.path.basename(dirpath) or dirpath}/\")\n             \
+          \   total += 1\n                if total >= max_entries:\n             \
+          \       logger.info(\"(tree) ... truncated ...\")\n                    return\n\
+          \                for fname in sorted(filenames)[:50]:\n                \
+          \    logger.info(f\"(tree){indent}  {fname}\")\n                    total\
+          \ += 1\n                    if total >= max_entries:\n                 \
+          \       logger.info(\"(tree) ... truncated ...\")\n                    \
+          \    return\n        except Exception as _e:\n            logger.warning(f\"\
+          Failed to render directory tree for {root}: {_e}\")\n\n    resolved_model_path:\
+          \ str = training_base_model\n    if isinstance(training_base_model, str)\
+          \ and training_base_model.startswith(\"oci://\"):\n        # Strip scheme\
+          \ and perform skopeo copy to OCI layout on PVC\n        ref_no_scheme =\
+          \ training_base_model[len(\"oci://\") :]\n        layout_dir = os.path.join(pvc_path,\
+          \ \"model-oci\")\n        model_out_dir = os.path.join(pvc_path, \"model\"\
+          )\n        # Clean output directory for a fresh extraction\n        try:\n\
+          \            if os.path.isdir(model_out_dir):\n                shutil.rmtree(model_out_dir)\n\
+          \        except Exception:\n            pass\n        _skopeo_copy_oci_to_layout(ref_no_scheme,\
+          \ layout_dir)\n        extracted = _olot_extract_models_from_layout(layout_dir,\
+          \ model_out_dir)\n        if not extracted:\n            logger.warning(\"\
+          No files extracted from '/models' in the OCI artifact; model discovery may\
+          \ fail.\")\n        _log_dir_tree(model_out_dir, max_depth=3, max_entries=800)\n\
+          \        # Typical extraction path is '<out_dir>/models/...'\n        candidate_root\
+          \ = os.path.join(model_out_dir, \"models\")\n        hf_dir = _discover_hf_model_dir(candidate_root\
+          \ if os.path.isdir(candidate_root) else model_out_dir)\n        if hf_dir:\n\
+          \            logger.info(f\"Detected HuggingFace model directory: {hf_dir}\"\
+          )\n            resolved_model_path = hf_dir\n        else:\n           \
+          \ logger.warning(\"Failed to detect a HuggingFace model directory after\
+          \ extraction; \"\n                           \"continuing with model_out_dir\
+          \ (may fail downstream).\")\n            resolved_model_path = model_out_dir\n\
           \n    # ------------------------------\n    # Training (placeholder for\
           \ TrainingHubTrainer)\n    # ------------------------------\n    checkpoints_dir\
           \ = os.path.join(pvc_path, \"checkpoints\")\n    os.makedirs(checkpoints_dir,\
@@ -1111,7 +1191,7 @@ deploymentSpec:
           Invalid training_lr_scheduler_kwargs format: {e}\")\n\n        def _build_params()\
           \ -> Dict[str, object]:\n            \"\"\"Build OSFT/SFT parameter set\
           \ for TrainingHub.\"\"\"\n            base = {\n                \"model_path\"\
-          : training_base_model,\n                # Prefer JSONL export when available;\
+          : resolved_model_path,\n                # Prefer JSONL export when available;\
           \ fallback to resolved directory\n                \"data_path\": jsonl_path\
           \ if os.path.exists(jsonl_path) else resolved_dataset_dir,\n           \
           \     \"effective_batch_size\": int(training_effective_batch_size if training_effective_batch_size\
