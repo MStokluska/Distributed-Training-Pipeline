@@ -23,7 +23,6 @@ from components.dataset_download import dataset_download
 from components.training import train_model
 from components.eval_lm_eval import universal_llm_evaluator
 from components.model_registry import model_registry
-from components.mlflow_tracking import mlflow_tracking
 
 # =============================================================================
 # PVC Configuration (COMPILE-TIME settings - change these before compiling)
@@ -264,26 +263,6 @@ def distributed_training_pipeline(
     # ^ Version string for the model.
 
     # =========================================================================
-    # MLFLOW TRACKING (mlflow_*)
-    # =========================================================================
-    mlflow_enable: bool = False,
-    # ^ Enable MLflow tracking. If False, MLflow step is skipped.
-
-    mlflow_tracking_uri: str = "",
-    # ^ MLflow tracking server URI (e.g., http://mlflow.mlflow.svc:5000).
-    #   Required if mlflow_enable is True.
-
-    mlflow_experiment_name: str = "distributed-training",
-    # ^ Name of the MLflow experiment to log runs under.
-
-    mlflow_run_name: str = "",
-    # ^ MLflow run name. Defaults to KFP run name (from UI "Name" field).
-    #   Leave empty to auto-use the pipeline job name.
-
-    mlflow_insecure_tls: bool = True,
-    # ^ Skip SSL certificate verification (True for self-signed certs in OpenShift).
-
-    # =========================================================================
     # SHARED PARAMETERS
     # =========================================================================
     shared_log_file: str = "pipeline_log.txt",
@@ -504,42 +483,6 @@ def distributed_training_pipeline(
     model_registry_task.set_caching_options(False)
     # Dependency on eval_task is automatic via eval_metrics/eval_results artifacts
     kfp.kubernetes.set_image_pull_policy(model_registry_task, "IfNotPresent")
-
-    # =========================================================================
-    # Stage 5: MLflow Tracking (Optional, no condition block for cleaner UI)
-    # =========================================================================
-    # Use KFP job name as MLflow run name if not explicitly provided
-    resolved_mlflow_run_name = mlflow_run_name if mlflow_run_name else dsl.PIPELINE_JOB_NAME_PLACEHOLDER
-
-    mlflow_task = mlflow_tracking(
-        pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        # MLflow connection
-        mlflow_tracking_uri=mlflow_tracking_uri,
-        mlflow_experiment_name=mlflow_experiment_name,
-        mlflow_run_name=resolved_mlflow_run_name,
-        mlflow_insecure_tls=mlflow_insecure_tls,
-        mlflow_enable=mlflow_enable,
-        # Model artifact from training
-        input_model=training_task.outputs["output_model"],
-        # Metrics from training and evaluation
-        input_training_metrics=training_task.outputs["output_metrics"],
-        input_eval_metrics=eval_task.outputs["output_metrics"],
-        # Training parameters to log
-        training_algorithm=training_model_algorithm,
-        training_base_model=training_model_base,
-        training_learning_rate=training_hyper_learning_rate,
-        training_num_epochs=training_hyper_epochs,
-        training_effective_batch_size=training_hyper_batch_size,
-        training_max_seq_len=training_hyper_max_seq_len,
-        training_max_tokens_per_gpu=training_hyper_max_tokens_per_gpu,
-        training_unfreeze_rank_ratio=training_model_unfreeze_ratio,
-        # Pipeline metadata (auto-resolved by KFP)
-        pipeline_run_id=dsl.PIPELINE_JOB_ID_PLACEHOLDER,
-        shared_log_file=shared_log_file,
-    )
-    mlflow_task.set_caching_options(False)
-    mlflow_task.after(model_registry_task)
-    kfp.kubernetes.set_image_pull_policy(mlflow_task, "IfNotPresent")
 
 
 if __name__ == "__main__":
