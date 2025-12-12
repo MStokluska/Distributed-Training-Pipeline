@@ -13,6 +13,11 @@
 #    eval_gen_kwargs: dict [Default: {}]
 #    eval_model_args: dict [Default: {}]
 #    eval_task_names: list [Default: ['arc_easy']]
+#    mlflow_enable: bool [Default: False]
+#    mlflow_experiment_name: str [Default: 'distributed-training']
+#    mlflow_insecure_tls: bool [Default: True]
+#    mlflow_run_name: str [Default: '']
+#    mlflow_tracking_uri: str [Default: '']
 #    registry_address: str [Default: '']
 #    registry_model_author: str [Default: 'pipeline']
 #    registry_model_description: str [Default: '']
@@ -104,6 +109,107 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
+  comp-mlflow-tracking:
+    executorLabel: exec-mlflow-tracking
+    inputDefinitions:
+      artifacts:
+        input_eval_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          description: Metrics from evaluation component.
+          isOptional: true
+        input_model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          description: Model artifact from training component.
+          isOptional: true
+        input_training_metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+          description: Metrics from training component.
+          isOptional: true
+      parameters:
+        mlflow_enable:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        mlflow_experiment_name:
+          defaultValue: distributed-training
+          description: Name of the MLflow experiment.
+          isOptional: true
+          parameterType: STRING
+        mlflow_insecure_tls:
+          defaultValue: true
+          isOptional: true
+          parameterType: BOOLEAN
+        mlflow_run_name:
+          defaultValue: ''
+          description: Optional name for the run (defaults to auto-generated).
+          isOptional: true
+          parameterType: STRING
+        mlflow_tracking_uri:
+          description: MLflow tracking server URI (e.g., http://mlflow.mlflow.svc:5000).
+          parameterType: STRING
+        pipeline_run_id:
+          defaultValue: ''
+          description: KFP pipeline run ID for lineage.
+          isOptional: true
+          parameterType: STRING
+        pvc_mount_path:
+          description: Path to shared PVC.
+          parameterType: STRING
+        shared_log_file:
+          defaultValue: pipeline_log.txt
+          description: Shared log file name.
+          isOptional: true
+          parameterType: STRING
+        training_algorithm:
+          defaultValue: ''
+          description: Training algorithm used (OSFT/SFT).
+          isOptional: true
+          parameterType: STRING
+        training_base_model:
+          defaultValue: ''
+          description: Base model HuggingFace ID.
+          isOptional: true
+          parameterType: STRING
+        training_effective_batch_size:
+          defaultValue: 0.0
+          description: Effective batch size.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        training_learning_rate:
+          defaultValue: 0.0
+          description: Learning rate used.
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+        training_max_seq_len:
+          defaultValue: 0.0
+          description: Max sequence length.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        training_max_tokens_per_gpu:
+          defaultValue: 0.0
+          description: Max tokens per GPU.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        training_num_epochs:
+          defaultValue: 0.0
+          description: Number of epochs.
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        training_unfreeze_rank_ratio:
+          defaultValue: 0.0
+          description: OSFT unfreeze ratio (0 for SFT).
+          isOptional: true
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
   comp-model-registry:
     executorLabel: exec-model-registry
     inputDefinitions:
@@ -663,6 +769,275 @@ deploymentSpec:
           \ - PVC: {pvc_eval_path}\")\n        log_message(\"=\"*60)\n\n    except\
           \ Exception as e:\n        error_msg = f\"ERROR in dataset download: {str(e)}\"\
           \n        log_message(error_msg)\n        raise\n\n"
+        image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
+    exec-mlflow-tracking:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - mlflow_tracking
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'mlflow>=2.10.0'\
+          \ 'boto3'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.15.2' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef mlflow_tracking(\n    pvc_mount_path: str,\n    # MLflow connection\n\
+          \    mlflow_tracking_uri: str,\n    mlflow_experiment_name: str = \"distributed-training\"\
+          ,\n    mlflow_run_name: str = \"\",\n    mlflow_insecure_tls: bool = True,\n\
+          \    # ^ Skip SSL verification for self-signed certificates (default: True\
+          \ for OpenShift routes)\n    mlflow_enable: bool = True,\n    # ^ If False,\
+          \ no-op (avoids a Condition node in the UI)\n    # Model artifact from training\n\
+          \    input_model: dsl.Input[dsl.Model] = None,\n    # Metrics from training/eval\n\
+          \    input_training_metrics: dsl.Input[dsl.Metrics] = None,\n    input_eval_metrics:\
+          \ dsl.Input[dsl.Metrics] = None,\n    # Training parameters to log\n   \
+          \ training_algorithm: str = \"\",\n    training_base_model: str = \"\",\n\
+          \    training_learning_rate: float = 0.0,\n    training_num_epochs: int\
+          \ = 0,\n    training_effective_batch_size: int = 0,\n    training_max_seq_len:\
+          \ int = 0,\n    training_max_tokens_per_gpu: int = 0,\n    training_unfreeze_rank_ratio:\
+          \ float = 0.0,\n    # Pipeline metadata\n    pipeline_run_id: str = \"\"\
+          ,\n    shared_log_file: str = \"pipeline_log.txt\",\n) -> str:\n    \"\"\
+          \"Create an MLflow run and log all pipeline artifacts, parameters, and metrics.\n\
+          \n    This component creates a single parent run representing the entire\
+          \ pipeline execution.\n    All training parameters, evaluation metrics,\
+          \ and model artifacts are logged to this run.\n\n    Args:\n        pvc_mount_path:\
+          \ Path to shared PVC.\n        mlflow_tracking_uri: MLflow tracking server\
+          \ URI (e.g., http://mlflow.mlflow.svc:5000).\n        mlflow_experiment_name:\
+          \ Name of the MLflow experiment.\n        mlflow_run_name: Optional name\
+          \ for the run (defaults to auto-generated).\n        input_model: Model\
+          \ artifact from training component.\n        input_training_metrics: Metrics\
+          \ from training component.\n        input_eval_metrics: Metrics from evaluation\
+          \ component.\n        training_algorithm: Training algorithm used (OSFT/SFT).\n\
+          \        training_base_model: Base model HuggingFace ID.\n        training_learning_rate:\
+          \ Learning rate used.\n        training_num_epochs: Number of epochs.\n\
+          \        training_effective_batch_size: Effective batch size.\n        training_max_seq_len:\
+          \ Max sequence length.\n        training_max_tokens_per_gpu: Max tokens\
+          \ per GPU.\n        training_unfreeze_rank_ratio: OSFT unfreeze ratio (0\
+          \ for SFT).\n        pipeline_run_id: KFP pipeline run ID for lineage.\n\
+          \        shared_log_file: Shared log file name.\n\n    Returns:\n      \
+          \  MLflow run ID.\n    \"\"\"\n    import os\n    import stat\n    import\
+          \ mlflow\n    from urllib.parse import urlparse\n    from datetime import\
+          \ datetime\n\n    print(\"=\" * 60)\n    print(\"MLFLOW TRACKING COMPONENT\"\
+          )\n    print(\"=\" * 60)\n\n    print(f\"\\n  Tracking URI: {mlflow_tracking_uri}\"\
+          )\n    print(f\"  Experiment: {mlflow_experiment_name}\")\n    print(f\"\
+          \  Run Name: {mlflow_run_name or '(auto)'}\")\n    print(f\"  Insecure TLS:\
+          \ {mlflow_insecure_tls}\")\n    print(f\"  Enabled: {mlflow_enable}\")\n\
+          \n    if not mlflow_enable:\n        print(\"  MLflow tracking disabled;\
+          \ skipping.\")\n        # Write to shared log for visibility\n        log_path\
+          \ = os.path.join(pvc_mount_path, shared_log_file)\n        try:\n      \
+          \      with open(log_path, \"a\") as f:\n                f.write(\"MLflow\
+          \ Tracking: skipped (mlflow_enable=False)\\n\")\n            print(f\" \
+          \ [Log written to {log_path}]\")\n        except Exception as e:\n     \
+          \       print(f\"  WARNING: Could not write skip log: {e}\")\n        print(\"\
+          \\n\" + \"=\" * 60)\n        print(\"COMPLETE - MLflow skipped\")\n    \
+          \    print(\"=\" * 60)\n        return \"\"\n\n    # Handle self-signed\
+          \ certificates (common in OpenShift)\n    if mlflow_insecure_tls:\n    \
+          \    os.environ[\"MLFLOW_TRACKING_INSECURE_TLS\"] = \"true\"\n        #\
+          \ Also set for underlying requests library\n        os.environ[\"CURL_CA_BUNDLE\"\
+          ] = \"\"\n        os.environ[\"REQUESTS_CA_BUNDLE\"] = \"\"\n        print(\"\
+          \  [SSL verification disabled for self-signed certs]\")\n\n    # Configure\
+          \ MLflow\n    mlflow.set_tracking_uri(mlflow_tracking_uri)\n    mlflow.set_experiment(mlflow_experiment_name)\n\
+          \n    # Default run name: use provided name, fall back to experiment name\n\
+          \    # The pipeline passes dsl.PIPELINE_JOB_NAME_PLACEHOLDER which resolves\
+          \ to KFP run name\n    if not mlflow_run_name:\n        mlflow_run_name\
+          \ = mlflow_experiment_name\n\n    run_id = \"\"\n\n    def get_pipeline_definition_id()\
+          \ -> str:\n        \"\"\"Get pipeline definition fingerprint for parent\
+          \ run grouping.\n\n        All runs of the same experiment share one parent.\n\
+          \        Compare runs using MLflow tags (algorithm, base_model, etc.).\n\
+          \        \"\"\"\n        # Check for explicit env vars (optional, for advanced\
+          \ use cases)\n        for key in [\n            \"PIPELINE_SPEC_MD5\",\n\
+          \            \"PIPELINE_VERSION\",\n            \"PIPELINE_DEFINITION_HASH\"\
+          ,\n            \"PIPELINE_DEFINITION_ID\",\n        ]:\n            val\
+          \ = os.environ.get(key)\n            if val:\n                return f\"\
+          {mlflow_experiment_name}-{val}\"\n\n        # Default: group by experiment\
+          \ name\n        return mlflow_experiment_name\n\n    def get_or_create_parent_run(exp_id:\
+          \ str, definition_id: str):\n        \"\"\"Find a parent run for this pipeline\
+          \ definition, create if missing.\"\"\"\n        try:\n            parent_runs\
+          \ = mlflow.search_runs(\n                experiment_ids=[exp_id],\n    \
+          \            filter_string=(\n                    f\"tags.pipeline_definition_id\
+          \ = '{definition_id}' \"\n                    \"and tags.run_level = 'parent'\"\
+          \n                ),\n                max_results=1,\n            )\n  \
+          \          if len(parent_runs) > 0:\n                parent_run = parent_runs.iloc[0]\n\
+          \                print(f\"  Reusing parent run: {parent_run.run_id}\")\n\
+          \                return parent_run.run_id\n        except Exception as e:\n\
+          \            print(f\"  WARNING: search_runs failed, will create parent:\
+          \ {e}\")\n\n        # Create new parent\n        parent = mlflow.start_run(\n\
+          \            run_name=f\"pipeline-def-{definition_id}\",\n            nested=False,\n\
+          \        )\n        mlflow.set_tags(\n            {\n                \"\
+          run_level\": \"parent\",\n                \"pipeline_definition_id\": definition_id,\n\
+          \                \"pipeline_experiment\": mlflow_experiment_name,\n    \
+          \        }\n        )\n        parent_id = parent.info.run_id\n        mlflow.end_run()\n\
+          \        print(f\"  Created parent run: {parent_id}\")\n        return parent_id\n\
+          \n    # Resolve parent/child nesting (default on)\n    exp = mlflow.get_experiment_by_name(mlflow_experiment_name)\n\
+          \    if exp is None:\n        exp_id = mlflow.create_experiment(mlflow_experiment_name)\n\
+          \    else:\n        exp_id = exp.experiment_id\n\n    pipeline_def_id =\
+          \ get_pipeline_definition_id()\n    parent_run_id = get_or_create_parent_run(exp_id,\
+          \ pipeline_def_id)\n\n    with mlflow.start_run(run_name=mlflow_run_name,\
+          \ nested=True, parent_run_id=parent_run_id) as run:\n        run_id = run.info.run_id\n\
+          \        print(f\"\\n[MLflow Run Started] ID: {run_id} (parent: {parent_run_id})\"\
+          )\n        mlflow.set_tags(\n            {\n                \"run_level\"\
+          : \"child\",\n                \"pipeline_definition_id\": pipeline_def_id,\n\
+          \                \"parent_run_id\": parent_run_id,\n            }\n    \
+          \    )\n\n        # --------------------------------------------------------\n\
+          \        # Log Training Parameters\n        # --------------------------------------------------------\n\
+          \        print(\"\\n[Logging Parameters...]\")\n        params = {\n   \
+          \         \"algorithm\": training_algorithm,\n            \"base_model\"\
+          : training_base_model,\n            \"learning_rate\": training_learning_rate,\n\
+          \            \"num_epochs\": training_num_epochs,\n            \"effective_batch_size\"\
+          : training_effective_batch_size,\n            \"max_seq_len\": training_max_seq_len,\n\
+          \            \"max_tokens_per_gpu\": training_max_tokens_per_gpu,\n    \
+          \        \"unfreeze_rank_ratio\": training_unfreeze_rank_ratio,\n      \
+          \      \"pipeline_run_id\": pipeline_run_id,\n        }\n        # Filter\
+          \ out empty/zero values for cleaner logging\n        params = {k: v for\
+          \ k, v in params.items() if v}\n        mlflow.log_params(params)\n    \
+          \    print(f\"  Logged {len(params)} parameters\")\n        for k, v in\
+          \ params.items():\n            print(f\"    - {k}: {v}\")\n\n        # --------------------------------------------------------\n\
+          \        # Log Training Metrics (final values from artifact metadata)\n\
+          \        # --------------------------------------------------------\n  \
+          \      if input_training_metrics:\n            print(\"\\n[Logging Training\
+          \ Metrics (final)...]\")\n            try:\n                training_metrics\
+          \ = dict(input_training_metrics.metadata) if hasattr(input_training_metrics,\
+          \ 'metadata') else {}\n                for k, v in training_metrics.items():\n\
+          \                    if isinstance(v, (int, float)):\n                 \
+          \       mlflow.log_metric(f\"training_{k}\", float(v))\n               \
+          \         print(f\"    - training_{k}: {v}\")\n                print(f\"\
+          \  Logged {len(training_metrics)} training metrics\")\n            except\
+          \ Exception as e:\n                print(f\"  WARNING: Could not log training\
+          \ metrics: {e}\")\n\n        # --------------------------------------------------------\n\
+          \        # Log Training History (per-step metrics from JSONL file)\n   \
+          \     # --------------------------------------------------------\n     \
+          \   def log_training_history():\n            \"\"\"Read training history\
+          \ JSONL and log per-step metrics for curves.\"\"\"\n            import json\n\
+          \            import glob\n\n            # Training metrics are in the checkpoints\
+          \ directory, not final_model\n            ckpt_dir = os.path.join(pvc_mount_path,\
+          \ \"checkpoints\")\n\n            print(f\"\\n[Logging Training History\
+          \ from {ckpt_dir}...]\")\n\n            # Determine metrics file based on\
+          \ algorithm\n            metrics_file = None\n            algorithm = training_algorithm.upper()\
+          \ if training_algorithm else \"\"\n\n            if algorithm == \"OSFT\"\
+          :\n                # OSFT uses training_metrics_0.jsonl\n              \
+          \  candidate = os.path.join(ckpt_dir, \"training_metrics_0.jsonl\")\n  \
+          \              if os.path.exists(candidate):\n                    metrics_file\
+          \ = candidate\n            elif algorithm == \"SFT\":\n                #\
+          \ SFT uses training_params_and_metrics_global0.jsonl\n                candidate\
+          \ = os.path.join(ckpt_dir, \"training_params_and_metrics_global0.jsonl\"\
+          )\n                if os.path.exists(candidate):\n                    metrics_file\
+          \ = candidate\n\n            # Fallback: try both patterns\n           \
+          \ if not metrics_file:\n                for pattern in [\"training_metrics_0.jsonl\"\
+          , \"training_params_and_metrics_global0.jsonl\"]:\n                    candidate\
+          \ = os.path.join(ckpt_dir, pattern)\n                    if os.path.exists(candidate):\n\
+          \                        metrics_file = candidate\n                    \
+          \    break\n\n            if not metrics_file:\n                print(f\"\
+          \  No training history file found in {ckpt_dir}\")\n                return\n\
+          \n            print(f\"  Found: {metrics_file}\")\n\n            # Read\
+          \ and parse JSONL\n            try:\n                with open(metrics_file,\
+          \ 'r') as f:\n                    lines = f.readlines()\n            except\
+          \ Exception as e:\n                print(f\"  ERROR reading file: {e}\"\
+          )\n                return\n\n            if not lines:\n               \
+          \ print(\"  File is empty\")\n                return\n\n            # For\
+          \ SFT, first line is config; skip it\n            start_idx = 0\n      \
+          \      if \"training_params_and_metrics\" in metrics_file and len(lines)\
+          \ > 1:\n                start_idx = 1\n\n            logged_count = 0\n\
+          \            for line in lines[start_idx:]:\n                line = line.strip()\n\
+          \                if not line:\n                    continue\n          \
+          \      try:\n                    entry = json.loads(line)\n            \
+          \    except json.JSONDecodeError:\n                    continue\n\n    \
+          \            step = entry.get(\"step\", logged_count)\n\n              \
+          \  # OSFT fields (check value is not None)\n                if entry.get(\"\
+          loss\") is not None:\n                    mlflow.log_metric(\"train_loss\"\
+          , float(entry[\"loss\"]), step=step)\n                if entry.get(\"lr\"\
+          ) is not None:\n                    mlflow.log_metric(\"learning_rate\"\
+          , float(entry[\"lr\"]), step=step)\n                if entry.get(\"grad_norm\"\
+          ) is not None:\n                    mlflow.log_metric(\"grad_norm\", float(entry[\"\
+          grad_norm\"]), step=step)\n                if entry.get(\"samples_per_second\"\
+          ) is not None:\n                    mlflow.log_metric(\"samples_per_second\"\
+          , float(entry[\"samples_per_second\"]), step=step)\n                if entry.get(\"\
+          val_loss\") is not None:\n                    mlflow.log_metric(\"val_loss\"\
+          , float(entry[\"val_loss\"]), step=step)\n                if entry.get(\"\
+          tokens_per_second\") is not None:\n                    mlflow.log_metric(\"\
+          tokens_per_second\", float(entry[\"tokens_per_second\"]), step=step)\n\n\
+          \                # SFT fields (different names)\n                if entry.get(\"\
+          avg_loss\") is not None:\n                    mlflow.log_metric(\"train_loss\"\
+          , float(entry[\"avg_loss\"]), step=step)\n                if entry.get(\"\
+          gradnorm\") is not None:\n                    mlflow.log_metric(\"grad_norm\"\
+          , float(entry[\"gradnorm\"]), step=step)\n                if entry.get(\"\
+          overall_throughput\") is not None:\n                    mlflow.log_metric(\"\
+          throughput\", float(entry[\"overall_throughput\"]), step=step)\n\n     \
+          \           logged_count += 1\n\n            print(f\"  Logged {logged_count}\
+          \ training steps with per-step metrics\")\n\n        print(\"\\n[Attempting\
+          \ to log training history...]\")\n        try:\n            log_training_history()\n\
+          \        except Exception as e:\n            import traceback\n        \
+          \    print(f\"  WARNING: Could not log training history: {e}\")\n      \
+          \      traceback.print_exc()\n\n        # --------------------------------------------------------\n\
+          \        # Log Evaluation Metrics\n        # --------------------------------------------------------\n\
+          \        def sanitize_metric_name(name: str) -> str:\n            \"\"\"\
+          Sanitize metric name for MLflow (alphanumerics, _, -, ., :, /, space only).\"\
+          \"\"\n            import re\n            sanitized = re.sub(r\"[,;!@#$%^&*()+=\\\
+          [\\]{}|\\\\<>?]\", \"_\", name)\n            sanitized = re.sub(r\"_+\"\
+          , \"_\", sanitized)\n            return sanitized.strip(\"_\")\n\n     \
+          \   if input_eval_metrics:\n            print(\"\\n[Logging Evaluation Metrics...]\"\
+          )\n            try:\n                eval_metrics = dict(input_eval_metrics.metadata)\
+          \ if hasattr(input_eval_metrics, 'metadata') else {}\n                for\
+          \ k, v in eval_metrics.items():\n                    if isinstance(v, (int,\
+          \ float)):\n                        safe_name = sanitize_metric_name(f\"\
+          eval_{k}\")\n                        mlflow.log_metric(safe_name, float(v))\n\
+          \                        print(f\"    - {safe_name}: {v}\")\n          \
+          \      print(f\"  Logged {len(eval_metrics)} evaluation metrics\")\n   \
+          \         except Exception as e:\n                print(f\"  WARNING: Could\
+          \ not log eval metrics: {e}\")\n\n        # --------------------------------------------------------\n\
+          \        # Log Model Artifact\n        # --------------------------------------------------------\n\
+          \        if input_model:\n            print(\"\\n[Logging Model Artifact...]\"\
+          )\n            try:\n                artifact_uri = mlflow.get_artifact_uri()\n\
+          \                parsed = urlparse(artifact_uri)\n                base_path\
+          \ = parsed.path or \"/\"\n                can_write = parsed.scheme not\
+          \ in (\"\", \"file\") or os.access(base_path, os.W_OK | os.X_OK)\n\n   \
+          \             model_path = input_model.path\n                if can_write\
+          \ and os.path.exists(model_path):\n                    mlflow.log_artifacts(model_path,\
+          \ artifact_path=\"model\")\n                    print(f\"  Logged model\
+          \ from: {model_path}\")\n                else:\n                    mlflow.log_param(\"\
+          model_uri\", getattr(input_model, \"uri\", model_path))\n              \
+          \      reason = \"artifact store not writable\" if not can_write else \"\
+          model path not found locally\"\n                    print(f\"  Skipped model\
+          \ artifact upload ({reason}); logged URI instead\")\n\n                #\
+          \ Log model metadata\n                if hasattr(input_model, 'metadata'):\n\
+          \                    for k, v in input_model.metadata.items():\n       \
+          \                 if isinstance(v, (str, int, float, bool)):\n         \
+          \                   mlflow.log_param(f\"model_{k}\", v)\n            except\
+          \ Exception as e:\n                print(f\"  WARNING: Could not log model\
+          \ artifact: {e}\")\n\n        # --------------------------------------------------------\n\
+          \        # Log Pipeline Log File\n        # --------------------------------------------------------\n\
+          \        log_path = os.path.join(pvc_mount_path, shared_log_file)\n    \
+          \    if os.path.exists(log_path):\n            print(f\"\\n[Logging Pipeline\
+          \ Log...]\")\n            try:\n                mlflow.log_artifact(log_path)\n\
+          \                print(f\"  Logged: {log_path}\")\n            except PermissionError:\n\
+          \                print(\"  WARNING: Artifact store not writable; skipping\
+          \ pipeline log upload\")\n            except Exception as e:\n         \
+          \       print(f\"  WARNING: Could not log pipeline log: {e}\")\n\n     \
+          \   # Add tags for easy filtering\n        mlflow.set_tag(\"pipeline\",\
+          \ \"distributed-training\")\n        mlflow.set_tag(\"source\", \"kfp\"\
+          )\n        if training_base_model:\n            mlflow.set_tag(\"base_model\"\
+          , training_base_model)\n        if training_algorithm:\n            mlflow.set_tag(\"\
+          algorithm\", training_algorithm)\n\n    # Write to shared log\n    log_entry\
+          \ = f\"MLflow Tracking: run_id={run_id}, experiment={mlflow_experiment_name}\\\
+          n\"\n    try:\n        with open(log_path, \"a\") as f:\n            f.write(log_entry)\n\
+          \        print(f\"\\n[Log written to {log_path}]\")\n    except Exception\
+          \ as e:\n        print(f\"  WARNING: Could not write to log: {e}\")\n\n\
+          \    print(\"\\n\" + \"=\" * 60)\n    print(f\"COMPLETE - MLflow Run ID:\
+          \ {run_id}\")\n    print(\"=\" * 60)\n\n    return run_id\n\n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
     exec-model-registry:
       container:
@@ -1413,6 +1788,65 @@ root:
               componentInputParameter: dataset_split_ratio
         taskInfo:
           name: dataset-download
+      mlflow-tracking:
+        cachingOptions: {}
+        componentRef:
+          name: comp-mlflow-tracking
+        dependentTasks:
+        - model-registry
+        - train-model
+        - universal-llm-evaluator
+        inputs:
+          artifacts:
+            input_eval_metrics:
+              taskOutputArtifact:
+                outputArtifactKey: output_metrics
+                producerTask: universal-llm-evaluator
+            input_model:
+              taskOutputArtifact:
+                outputArtifactKey: output_model
+                producerTask: train-model
+            input_training_metrics:
+              taskOutputArtifact:
+                outputArtifactKey: output_metrics
+                producerTask: train-model
+          parameters:
+            mlflow_enable:
+              componentInputParameter: mlflow_enable
+            mlflow_experiment_name:
+              componentInputParameter: mlflow_experiment_name
+            mlflow_insecure_tls:
+              componentInputParameter: mlflow_insecure_tls
+            mlflow_run_name:
+              componentInputParameter: mlflow_run_name
+            mlflow_tracking_uri:
+              componentInputParameter: mlflow_tracking_uri
+            pipeline_run_id:
+              runtimeValue:
+                constant: '{{$.pipeline_job_uuid}}'
+            pvc_mount_path:
+              runtimeValue:
+                constant: '{{$.workspace_path}}'
+            shared_log_file:
+              componentInputParameter: shared_log_file
+            training_algorithm:
+              componentInputParameter: training_model_algorithm
+            training_base_model:
+              componentInputParameter: training_model_base
+            training_effective_batch_size:
+              componentInputParameter: training_hyper_batch_size
+            training_learning_rate:
+              componentInputParameter: training_hyper_learning_rate
+            training_max_seq_len:
+              componentInputParameter: training_hyper_max_seq_len
+            training_max_tokens_per_gpu:
+              componentInputParameter: training_hyper_max_tokens_per_gpu
+            training_num_epochs:
+              componentInputParameter: training_hyper_epochs
+            training_unfreeze_rank_ratio:
+              componentInputParameter: training_model_unfreeze_ratio
+        taskInfo:
+          name: mlflow-tracking
       model-registry:
         cachingOptions: {}
         componentRef:
@@ -1630,6 +2064,26 @@ root:
         description: List of lm-eval tasks (mmlu, gsm8k, arc_easy, etc.)
         isOptional: true
         parameterType: LIST
+      mlflow_enable:
+        defaultValue: false
+        isOptional: true
+        parameterType: BOOLEAN
+      mlflow_experiment_name:
+        defaultValue: distributed-training
+        isOptional: true
+        parameterType: STRING
+      mlflow_insecure_tls:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      mlflow_run_name:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
+      mlflow_tracking_uri:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
       registry_address:
         defaultValue: ''
         description: Model registry server address (empty = skip)
@@ -1845,6 +2299,8 @@ platforms:
             secretNameParameter:
               runtimeValue:
                 constant: minio-secret
+        exec-mlflow-tracking:
+          imagePullPolicy: IfNotPresent
         exec-model-registry:
           imagePullPolicy: IfNotPresent
         exec-train-model:
