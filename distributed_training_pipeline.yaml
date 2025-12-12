@@ -25,6 +25,7 @@
 #    training_env_annotations: str [Default: '']
 #    training_env_hf_token: str [Default: '']
 #    training_env_labels: str [Default: '']
+#    training_env_pull_secret: str [Default: '']
 #    training_env_vars: str [Default: '']
 #    training_hyper_batch_size: int [Default: 128.0]
 #    training_hyper_epochs: int [Default: 1.0]
@@ -43,10 +44,11 @@
 #    training_opt_processed_dataset: bool [Default: False]
 #    training_opt_unmask_messages: bool [Default: False]
 #    training_opt_use_liger: bool [Default: True]
+#    training_pull_secret: str [Default: '']
 #    training_res_cpu: str [Default: '8']
 #    training_res_gpu: int [Default: 1.0]
 #    training_res_memory: str [Default: '32Gi']
-#    training_res_num_procs: int [Default: 1.0]
+#    training_res_num_procs: str [Default: 'auto']
 #    training_res_num_workers: int [Default: 1.0]
 #    training_save_at_epoch: bool [Default: False]
 #    training_save_final: bool [Default: True]
@@ -287,6 +289,10 @@ components:
           description: "Number of epochs (1 = quick test; 3\u20135 = better convergence)."
           isOptional: true
           parameterType: NUMBER_INTEGER
+        training_pull_secret:
+          defaultValue: ''
+          isOptional: true
+          parameterType: STRING
         training_resource_cpu_per_worker:
           defaultValue: '8'
           description: CPU limit/request per worker (e.g., "8").
@@ -303,10 +309,10 @@ components:
           isOptional: true
           parameterType: STRING
         training_resource_num_procs_per_worker:
-          defaultValue: 1.0
+          defaultValue: auto
           description: Processes (ranks) per worker (usually equals GPUs/worker).
           isOptional: true
-          parameterType: NUMBER_INTEGER
+          parameterType: STRING
         training_resource_num_workers:
           defaultValue: 1.0
           description: Total worker pods (1 = single-node; 2+ = multi-node).
@@ -527,28 +533,39 @@ deploymentSpec:
           \               f\"Item {i}, message {j}: invalid role '{msg['role']}'.\
           \ \"\n                        f\"Must be one of {valid_roles}\"\n      \
           \              )\n\n        log_message(f\"Dataset validated: {len(dataset)}\
-          \ examples in chat format\")\n        return True\n\n    def download_from_huggingface(dataset_path:\
+          \ examples in chat format\")\n        return True\n\n    def _parse_hf_path_and_config(hf_path:\
+          \ str) -> tuple[str, str | None]:\n        \"\"\"Support optional HF config\
+          \ via query, e.g., 'repo?config=All'.\"\"\"\n        # Simple query parse:\
+          \ look for '?config='\n        if \"?config=\" in hf_path:\n           \
+          \ base, q = hf_path.split(\"?config=\", 1)\n            config = q.split(\"\
+          &\", 1)[0].strip() or None\n            return base.strip(), config\n  \
+          \      return hf_path, None\n\n    def download_from_huggingface(dataset_path:\
           \ str) -> Dataset:\n        \"\"\"Download dataset from HuggingFace.\"\"\
           \"\n        log_message(f\"Downloading from HuggingFace: {dataset_path}\"\
           )\n\n        # Set up authentication if token provided\n        if hf_token:\n\
           \            log_message(\"Using provided HuggingFace token for authentication\"\
-          )\n\n        # Try to load with \"train\" split first\n        load_kwargs\
-          \ = {\n            \"path\": dataset_path,\n            \"split\": \"train\"\
-          ,\n        }\n\n        if hf_token:\n            load_kwargs[\"token\"\
-          ] = hf_token\n\n        try:\n            dataset = load_dataset(**load_kwargs)\n\
-          \            log_message(f\"Downloaded {len(dataset)} examples from HuggingFace\
+          )\n\n        # Support optional config in the path (e.g., '?config=All')\n\
+          \        hf_repo, hf_config = _parse_hf_path_and_config(dataset_path)\n\n\
+          \        # Try to load with \"train\" split first\n        load_kwargs =\
+          \ {\n            \"path\": hf_repo,\n            \"split\": \"train\",\n\
+          \        }\n        if hf_config:\n            load_kwargs[\"name\"] = hf_config\n\
+          \n        if hf_token:\n            load_kwargs[\"token\"] = hf_token\n\n\
+          \        try:\n            dataset = load_dataset(**load_kwargs)\n     \
+          \       log_message(f\"Downloaded {len(dataset)} examples from HuggingFace\
           \ (split: train)\")\n            return dataset\n\n        except ValueError\
           \ as e:\n            # If \"train\" split doesn't exist, try to find an\
           \ alternative\n            if \"Unknown split\" in str(e):\n           \
           \     log_message(f\"'train' split not found, attempting to detect available\
           \ splits...\")\n\n                # Load dataset info without specifying\
           \ split\n                try:\n                    load_kwargs_no_split\
-          \ = {\"path\": dataset_path}\n                    if hf_token:\n       \
-          \                 load_kwargs_no_split[\"token\"] = hf_token\n\n       \
-          \             # Load all splits\n                    dataset_dict = load_dataset(**load_kwargs_no_split)\n\
-          \n                    # Try common training split names in order of preference\n\
-          \                    preferred_splits = [\"train_sft\", \"train_gen\", \"\
-          train\", \"training\"]\n\n                    for split_name in preferred_splits:\n\
+          \ = {\"path\": hf_repo}\n                    if hf_config:\n           \
+          \             load_kwargs_no_split[\"name\"] = hf_config\n             \
+          \       if hf_token:\n                        load_kwargs_no_split[\"token\"\
+          ] = hf_token\n\n                    # Load all splits\n                \
+          \    dataset_dict = load_dataset(**load_kwargs_no_split)\n\n           \
+          \         # Try common training split names in order of preference\n   \
+          \                 preferred_splits = [\"train_sft\", \"train_gen\", \"train\"\
+          , \"training\"]\n\n                    for split_name in preferred_splits:\n\
           \                        if split_name in dataset_dict:\n              \
           \              log_message(f\"Using split: {split_name}\")\n           \
           \                 dataset = dataset_dict[split_name]\n                 \
@@ -820,52 +837,59 @@ deploymentSpec:
           \ s3://...)\n    dataset: dsl.Input[dsl.Dataset] = None,\n    # Base model\
           \ (HF ID or local path)\n    training_base_model: str = \"Qwen/Qwen2.5-1.5B-Instruct\"\
           ,\n    # Training algorithm selector\n    training_algorithm: str = \"OSFT\"\
-          ,\n    # OSFT parameters (prefixed with training_)\n    training_unfreeze_rank_ratio:\
-          \ float = 0.25,\n    training_effective_batch_size: int = 128,\n    training_max_tokens_per_gpu:\
-          \ int = 64000,\n    training_max_seq_len: int = 8192,\n    training_learning_rate:\
-          \ Optional[float] = None,\n    training_backend: str = \"mini-trainer\"\
-          ,\n    training_target_patterns: str = \"\",\n    training_seed: Optional[int]\
-          \ = None,\n    training_use_liger: Optional[bool] = None,\n    training_use_processed_dataset:\
-          \ Optional[bool] = None,\n    training_unmask_messages: Optional[bool] =\
-          \ None,\n    training_lr_scheduler: Optional[str] = None,\n    training_lr_warmup_steps:\
-          \ Optional[int] = None,\n    training_save_samples: Optional[int] = None,\n\
-          \    training_accelerate_full_state_at_epoch: Optional[bool] = None,\n \
-          \   training_lr_scheduler_kwargs: str = \"\",\n    training_checkpoint_at_epoch:\
-          \ Optional[bool] = None,\n    training_save_final_checkpoint: Optional[bool]\
+          ,\n    # ------------------------------\n    # Common params (used by both\
+          \ OSFT and SFT)\n    # ------------------------------\n    training_effective_batch_size:\
+          \ int = 128,\n    training_max_tokens_per_gpu: int = 64000,\n    training_max_seq_len:\
+          \ int = 8192,\n    training_learning_rate: Optional[float] = None,\n   \
+          \ training_backend: str = \"mini-trainer\",\n    training_lr_warmup_steps:\
+          \ Optional[int] = None,\n    training_checkpoint_at_epoch: Optional[bool]\
           \ = None,\n    training_num_epochs: Optional[int] = None,\n    training_data_output_dir:\
           \ Optional[str] = None,\n    # HuggingFace token for gated models (optional\
           \ - leave empty if not needed)\n    training_hf_token: str = \"\",\n   \
-          \ # Env overrides: \"KEY=VAL,KEY=VAL\"\n    training_envs: str = \"\",\n\
-          \    # Resource and runtime parameters (per worker/pod)\n    training_resource_cpu_per_worker:\
-          \ str = \"8\",\n    training_resource_gpu_per_worker: int = 1,\n    training_resource_memory_per_worker:\
-          \ str = \"32Gi\",\n    training_resource_num_procs_per_worker: int = 1,\n\
-          \    training_resource_num_workers: int = 1,\n    training_metadata_labels:\
-          \ str = \"\",\n    training_metadata_annotations: str = \"\",\n    # KFP\
-          \ TaskConfig passthrough for volumes/env/resources, etc.\n    kubernetes_config:\
-          \ dsl.TaskConfig = None,\n) -> str:\n    \"\"\"Perform model training (inline)\
-          \ using PVC workspace and TrainingHub runtime.\n\n    Args:\n        pvc_path:\
-          \ Root of the workspace PVC for this run.\n        dataset: Input dataset\
-          \ artifact (preferred). If not present, this component\n            will\
-          \ attempt to load from a remote path specified in dataset.metadata.\n  \
-          \          - metadata[\"artifact_path\"]: remote dataset path (e.g., s3://...,\
-          \ https://..., or HF repo id)\n            - metadata[\"pvc_dir\"]: pre-staged\
-          \ PVC directory to use if present\n        training_base_model: HuggingFace\
-          \ model ID to fine-tune (e.g., \"Qwen/Qwen2.5-1.5B-Instruct\").\n\n    \
-          \    training_algorithm: Training algorithm (\"OSFT\" | \"SFT\"). OSFT adds\
-          \ continual learning support.\n        training_effective_batch_size: Per-step\
-          \ batch size. Guidance:\n            - 1 GPU: 16\u201332\n            -\
-          \ 2 GPUs: 32\u201364\n            - 4 GPUs: 64\u2013128\n        training_max_tokens_per_gpu:\
-          \ Token budget per GPU for memory mgmt.\n        training_max_seq_len: Max\
-          \ sequence length (typical 2048\u20138192).\n        training_learning_rate:\
-          \ Learning rate (typ. 1e-6 to 1e-4; 5e-6 is a good OSFT default).\n    \
-          \    training_backend: Trainer backend variant (e.g., \"mini-trainer\").\n\
-          \        training_target_patterns: Comma-separated target modules/patterns\
-          \ (algorithm-specific).\n        training_seed: Random seed for reproducibility.\n\
-          \        training_use_liger: Enable Liger kernel optimizations (image must\
-          \ include kernels).\n        training_use_processed_dataset: Whether dataset\
-          \ is already processed.\n        training_unmask_messages: Whether to unmask\
-          \ chat messages if applicable.\n        training_lr_scheduler: LR scheduler\
-          \ (\"cosine\" | \"linear\" | \"constant\").\n        training_lr_warmup_steps:\
+          \ # Pull secret for registry.redhat.io in Docker config.json format (optional)\n\
+          \    training_pull_secret: str = \"\",\n    # Env overrides: \"KEY=VAL,KEY=VAL\"\
+          \n    training_envs: str = \"\",\n    # Resource and runtime parameters\
+          \ (per worker/pod)\n    training_resource_cpu_per_worker: str = \"8\",\n\
+          \    training_resource_gpu_per_worker: int = 1,\n    training_resource_memory_per_worker:\
+          \ str = \"32Gi\",\n    training_resource_num_procs_per_worker: str = \"\
+          auto\",\n    training_resource_num_workers: int = 1,\n    training_metadata_labels:\
+          \ str = \"\",\n    training_metadata_annotations: str = \"\",\n    # ------------------------------\n\
+          \    # OSFT-only params (see ai-innovation/training_hub/src/training_hub/algorithms/osft.py)\n\
+          \    # ------------------------------\n    training_unfreeze_rank_ratio:\
+          \ float = 0.25,\n    training_target_patterns: str = \"\",\n    training_seed:\
+          \ Optional[int] = None,\n    training_use_liger: Optional[bool] = None,\n\
+          \    training_use_processed_dataset: Optional[bool] = None,\n    training_unmask_messages:\
+          \ Optional[bool] = None,\n    training_lr_scheduler: Optional[str] = None,\n\
+          \    training_lr_scheduler_kwargs: str = \"\",\n    training_save_final_checkpoint:\
+          \ Optional[bool] = None,\n    # ------------------------------\n    # SFT-only\
+          \ params (see ai-innovation/training_hub/src/training_hub/algorithms/sft.py)\n\
+          \    # ------------------------------\n    training_save_samples: Optional[int]\
+          \ = None,\n    training_accelerate_full_state_at_epoch: Optional[bool] =\
+          \ None,\n    # KFP TaskConfig passthrough for volumes/env/resources, etc.\n\
+          \    kubernetes_config: dsl.TaskConfig = None,\n) -> str:\n    \"\"\"Perform\
+          \ model training (inline) using PVC workspace and TrainingHub runtime.\n\
+          \n    Args:\n        pvc_path: Root of the workspace PVC for this run.\n\
+          \        dataset: Input dataset artifact (preferred). If not present, this\
+          \ component\n            will attempt to load from a remote path specified\
+          \ in dataset.metadata.\n            - metadata[\"artifact_path\"]: remote\
+          \ dataset path (e.g., s3://..., https://..., or HF repo id)\n          \
+          \  - metadata[\"pvc_dir\"]: pre-staged PVC directory to use if present\n\
+          \        training_base_model: HuggingFace model ID to fine-tune (e.g., \"\
+          Qwen/Qwen2.5-1.5B-Instruct\").\n\n        training_algorithm: Training algorithm\
+          \ (\"OSFT\" | \"SFT\"). OSFT adds continual learning support.\n        training_effective_batch_size:\
+          \ Per-step batch size. Guidance:\n            - 1 GPU: 16\u201332\n    \
+          \        - 2 GPUs: 32\u201364\n            - 4 GPUs: 64\u2013128\n     \
+          \   training_max_tokens_per_gpu: Token budget per GPU for memory mgmt.\n\
+          \        training_max_seq_len: Max sequence length (typical 2048\u20138192).\n\
+          \        training_learning_rate: Learning rate (typ. 1e-6 to 1e-4; 5e-6\
+          \ is a good OSFT default).\n        training_backend: Trainer backend variant\
+          \ (e.g., \"mini-trainer\").\n        training_target_patterns: Comma-separated\
+          \ target modules/patterns (algorithm-specific).\n        training_seed:\
+          \ Random seed for reproducibility.\n        training_use_liger: Enable Liger\
+          \ kernel optimizations (image must include kernels).\n        training_use_processed_dataset:\
+          \ Whether dataset is already processed.\n        training_unmask_messages:\
+          \ Whether to unmask chat messages if applicable.\n        training_lr_scheduler:\
+          \ LR scheduler (\"cosine\" | \"linear\" | \"constant\").\n        training_lr_warmup_steps:\
           \ LR warmup steps (0 for none).\n        training_save_samples: Number of\
           \ samples to save during SFT (optional).\n        training_accelerate_full_state_at_epoch:\
           \ Whether to save full Accelerate state at each epoch (optional).\n    \
@@ -1052,17 +1076,18 @@ deploymentSpec:
           \ repo id\n                logger.info(f\"Assuming HF dataset repo id: {rp}\"\
           )\n                ds: Dataset = load_dataset(rp, split=\"train\")\n   \
           \             ds.save_to_disk(out_dir)\n                return\n       \
-          \ # 3) Default fallback (Table-GPT)\n        logger.info(\"No dataset provided.\
-          \ Falling back to 'LipengCS/Table-GPT'\")\n        ds: Dataset = load_dataset(\"\
-          LipengCS/Table-GPT\", \"All\", split=\"train\")\n        ds.save_to_disk(out_dir)\n\
-          \n    _resolve_dataset(dataset, resolved_dataset_dir)\n\n    # Export dataset\
-          \ to JSONL so downstream trainer reads a plain JSONL file\n    jsonl_path\
-          \ = os.path.join(resolved_dataset_dir, \"train.jsonl\")\n    try:\n    \
-          \    # Try loading from the saved HF dataset on disk and export to JSONL\n\
-          \        ds_on_disk = load_from_disk(resolved_dataset_dir)\n        # Handle\
-          \ DatasetDict vs Dataset\n        train_split = ds_on_disk[\"train\"] if\
-          \ isinstance(ds_on_disk, dict) else ds_on_disk\n        try:\n         \
-          \   # Newer datasets supports native JSON export\n            train_split.to_json(jsonl_path,\
+          \ # 3) No fallback: require an explicit dataset source\n        raise ValueError(\n\
+          \            \"No dataset provided or resolvable. Please supply an input\
+          \ artifact, a PVC path via metadata \"\n            \"('pvc_path' or 'pvc_dir'),\
+          \ or a remote source via metadata['artifact_path'] (S3/HTTP/HF repo id).\"\
+          \n        )\n\n    _resolve_dataset(dataset, resolved_dataset_dir)\n\n \
+          \   # Export dataset to JSONL so downstream trainer reads a plain JSONL\
+          \ file\n    jsonl_path = os.path.join(resolved_dataset_dir, \"train.jsonl\"\
+          )\n    try:\n        # Try loading from the saved HF dataset on disk and\
+          \ export to JSONL\n        ds_on_disk = load_from_disk(resolved_dataset_dir)\n\
+          \        # Handle DatasetDict vs Dataset\n        train_split = ds_on_disk[\"\
+          train\"] if isinstance(ds_on_disk, dict) else ds_on_disk\n        try:\n\
+          \            # Newer datasets supports native JSON export\n            train_split.to_json(jsonl_path,\
           \ lines=True)\n            logger.info(f\"Wrote JSONL to {jsonl_path} via\
           \ to_json\")\n        except AttributeError:\n            # Manual JSONL\
           \ write\n            import json as _json\n            with open(jsonl_path,\
@@ -1074,39 +1099,50 @@ deploymentSpec:
           \ as default; downstream will fallback to directory if file not present\n\
           \n    # ------------------------------\n    # Model resolution (supports\
           \ HF ID/local path or oci:// registry ref)\n    # ------------------------------\n\
-          \    def _skopeo_copy_oci_to_layout(oci_ref: str, layout_dir: str) -> None:\n\
-          \        \"\"\"Use skopeo to copy a registry image to an OCI layout directory.\"\
-          \"\"\n        os.makedirs(layout_dir, exist_ok=True)\n        # Clean previous\
-          \ blobs for idempotency if empty or stale\n        try:\n            if\
-          \ os.path.isdir(layout_dir) and any(os.scandir(layout_dir)):\n         \
-          \       logger.info(f\"OCI layout dir already exists at {layout_dir}\")\n\
-          \        except Exception:\n            pass\n        # skopeo syntax: skopeo\
-          \ copy docker://REF oci:LAYOUT:TAG\n        # We do not pass auth by default;\
-          \ rely on mounted DOCKER_CONFIG/REGISTRY_AUTH_FILE.\n        cmd = [\"skopeo\"\
-          , \"copy\", \"-v\", f\"docker://{oci_ref}\", f\"oci:{layout_dir}:latest\"\
-          ]\n        logger.info(f\"Running: {' '.join(cmd)}\")\n        res = subprocess.run(cmd,\
-          \ text=True, capture_output=True)\n        if res.returncode != 0:\n   \
-          \         stderr = (res.stderr or \"\").strip()\n            logger.error(f\"\
-          skopeo copy failed (exit={res.returncode}): {stderr}\")\n            if\
-          \ \"unauthorized\" in stderr.lower() or \"authentication required\" in stderr.lower():\n\
-          \                logger.error(\"Authentication error detected pulling from\
-          \ registry. \"\n                             \"Mount a docker config.json\
-          \ as DOCKER_CONFIG or provide REGISTRY_AUTH_FILE.\")\n            res.check_returncode()\n\
-          \        else:\n            # Stream some of the output to logs for progress\
-          \ visibility\n            out_preview = \"\\n\".join((res.stdout or \"\"\
-          ).splitlines()[-20:])\n            if out_preview:\n                logger.info(f\"\
-          skopeo copy output (tail):\\n{out_preview}\")\n\n    def _olot_extract_models_from_layout(layout_dir:\
-          \ str, out_dir: str) -> List[str]:\n        \"\"\"Extract only '/models'\
-          \ contents from the OCI layout into out_dir using olot.\"\"\"\n        try:\n\
-          \            from olot.basics import crawl_ocilayout_blobs_to_extract\n\
-          \        except Exception as e:\n            raise RuntimeError(f\"olot\
-          \ is required but failed to import: {e}\")\n        os.makedirs(out_dir,\
-          \ exist_ok=True)\n        logger.info(f\"Extracting '/models' from OCI layout\
-          \ {layout_dir} to {out_dir}\")\n        extracted = crawl_ocilayout_blobs_to_extract(layout_dir,\
-          \ out_dir, tar_filter_dir=\"/models\")\n        logger.info(f\"olot extraction\
-          \ complete. Extracted entries: {len(extracted)}\")\n        return extracted\n\
-          \n    def _discover_hf_model_dir(root: str) -> _Optional[str]:\n       \
-          \ \"\"\"Find a Hugging Face model directory containing config.json, weights,\
+          \    def _skopeo_copy_to_dir(oci_ref: str, dest_dir: str, auth_json: str\
+          \ | None = None) -> None:\n        \"\"\"Use skopeo to copy a registry image\
+          \ to a plain directory ('dir:' transport).\"\"\"\n        os.makedirs(dest_dir,\
+          \ exist_ok=True)\n        authfile_path = None\n        try:\n         \
+          \   if auth_json:\n                authfile_path = \"/tmp/skopeo-auth.json\"\
+          \n                with open(authfile_path, \"w\") as f:\n              \
+          \      f.write(auth_json)\n        except Exception as e:\n            logger.warning(f\"\
+          Failed to prepare skopeo auth file: {e}\")\n            authfile_path =\
+          \ None\n        # skopeo syntax: skopeo copy [--authfile FILE] docker://REF\
+          \ dir:DESTDIR\n        cmd = [\"skopeo\", \"copy\"]\n        if authfile_path:\n\
+          \            cmd.extend([\"--authfile\", authfile_path])\n        cmd.extend([f\"\
+          docker://{oci_ref}\", f\"dir:{dest_dir}\"])\n        logger.info(f\"Running:\
+          \ {' '.join(cmd)}\")\n        res = subprocess.run(cmd, text=True, capture_output=True)\n\
+          \        if res.returncode != 0:\n            stderr = (res.stderr or \"\
+          \").strip()\n            logger.error(f\"skopeo copy failed (exit={res.returncode}):\
+          \ {stderr}\")\n            if \"unauthorized\" in stderr.lower() or \"authentication\
+          \ required\" in stderr.lower():\n                logger.error(\"Authentication\
+          \ error detected pulling from registry. \"\n                           \
+          \  \"Provide credentials via --authfile or mounted Docker config.\")\n \
+          \           res.check_returncode()\n        else:\n            out_preview\
+          \ = \"\\n\".join((res.stdout or \"\").splitlines()[-20:])\n            if\
+          \ out_preview:\n                logger.info(f\"skopeo copy output (tail):\\\
+          n{out_preview}\")\n\n    def _extract_models_from_dir_image(image_dir: str,\
+          \ out_dir: str) -> List[str]:\n        \"\"\"Extract 'models/' subtree from\
+          \ skopeo dir transport output into out_dir.\"\"\"\n        import tarfile\n\
+          \        os.makedirs(out_dir, exist_ok=True)\n        extracted: List[str]\
+          \ = []\n        logger.info(f\"Extracting 'models/' from dir image {image_dir}\
+          \ to {out_dir}\")\n        try:\n            for fname in os.listdir(image_dir):\n\
+          \                fpath = os.path.join(image_dir, fname)\n              \
+          \  if not os.path.isfile(fpath):\n                    continue\n       \
+          \         if fname.endswith(\".json\") or fname in {\"manifest\", \"index.json\"\
+          }:\n                    continue\n                try:\n               \
+          \     with tarfile.open(fpath, mode=\"r:*\") as tf:\n                  \
+          \      for member in tf.getmembers():\n                            if member.isfile()\
+          \ and member.name.startswith(\"models/\"):\n                           \
+          \     tf.extract(member, path=out_dir)\n                               \
+          \ extracted.append(member.name)\n                except tarfile.ReadError:\n\
+          \                    continue\n                except Exception as _e:\n\
+          \                    logger.warning(f\"Failed to extract from {fname}: {_e}\"\
+          )\n        except Exception as e:\n            logger.warning(f\"Dir image\
+          \ extraction failed: {e}\")\n        logger.info(f\"Extraction completed;\
+          \ entries extracted: {len(extracted)}\")\n        return extracted\n\n \
+          \   def _discover_hf_model_dir(root: str) -> _Optional[str]:\n        \"\
+          \"\"Find a Hugging Face model directory containing config.json, weights,\
           \ and tokenizer.\"\"\"\n        weight_candidates = {\n            \"pytorch_model.bin\"\
           ,\n            \"pytorch_model.bin.index.json\",\n            \"model.safetensors\"\
           ,\n            \"model.safetensors.index.json\",\n        }\n        tokenizer_candidates\
@@ -1135,17 +1171,19 @@ deploymentSpec:
           Failed to render directory tree for {root}: {_e}\")\n\n    resolved_model_path:\
           \ str = training_base_model\n    if isinstance(training_base_model, str)\
           \ and training_base_model.startswith(\"oci://\"):\n        # Strip scheme\
-          \ and perform skopeo copy to OCI layout on PVC\n        ref_no_scheme =\
-          \ training_base_model[len(\"oci://\") :]\n        layout_dir = os.path.join(pvc_path,\
-          \ \"model-oci\")\n        model_out_dir = os.path.join(pvc_path, \"model\"\
+          \ and perform skopeo copy to a plain directory on PVC\n        ref_no_scheme\
+          \ = training_base_model[len(\"oci://\") :]\n        dir_image = os.path.join(pvc_path,\
+          \ \"model-dir\")\n        model_out_dir = os.path.join(pvc_path, \"model\"\
           )\n        # Clean output directory for a fresh extraction\n        try:\n\
           \            if os.path.isdir(model_out_dir):\n                shutil.rmtree(model_out_dir)\n\
-          \        except Exception:\n            pass\n        _skopeo_copy_oci_to_layout(ref_no_scheme,\
-          \ layout_dir)\n        extracted = _olot_extract_models_from_layout(layout_dir,\
-          \ model_out_dir)\n        if not extracted:\n            logger.warning(\"\
-          No files extracted from '/models' in the OCI artifact; model discovery may\
-          \ fail.\")\n        _log_dir_tree(model_out_dir, max_depth=3, max_entries=800)\n\
-          \        # Typical extraction path is '<out_dir>/models/...'\n        candidate_root\
+          \        except Exception:\n            pass\n        # Use provided pull\
+          \ secret (Docker config.json content) if present\n        auth_json = training_pull_secret.strip()\
+          \ or None\n        _skopeo_copy_to_dir(ref_no_scheme, dir_image, auth_json)\n\
+          \        extracted = _extract_models_from_dir_image(dir_image, model_out_dir)\n\
+          \        if not extracted:\n            logger.warning(\"No files extracted\
+          \ from '/models' in the OCI artifact; model discovery may fail.\")\n   \
+          \     _log_dir_tree(model_out_dir, max_depth=3, max_entries=800)\n     \
+          \   # Typical extraction path is '<out_dir>/models/...'\n        candidate_root\
           \ = os.path.join(model_out_dir, \"models\")\n        hf_dir = _discover_hf_model_dir(candidate_root\
           \ if os.path.isdir(candidate_root) else model_out_dir)\n        if hf_dir:\n\
           \            logger.info(f\"Detected HuggingFace model directory: {hf_dir}\"\
@@ -1188,50 +1226,68 @@ deploymentSpec:
           \   raise ValueError(\"Empty key in training_lr_scheduler_kwargs\")\n  \
           \                  kv[key] = value\n                parsed_lr_sched_kwargs\
           \ = kv\n            except Exception as e:\n                raise ValueError(f\"\
-          Invalid training_lr_scheduler_kwargs format: {e}\")\n\n        def _build_params()\
-          \ -> Dict[str, object]:\n            \"\"\"Build OSFT/SFT parameter set\
-          \ for TrainingHub.\"\"\"\n            base = {\n                \"model_path\"\
-          : resolved_model_path,\n                # Prefer JSONL export when available;\
-          \ fallback to resolved directory\n                \"data_path\": jsonl_path\
-          \ if os.path.exists(jsonl_path) else resolved_dataset_dir,\n           \
-          \     \"effective_batch_size\": int(training_effective_batch_size if training_effective_batch_size\
-          \ is not None else 128),\n                \"max_tokens_per_gpu\": int(training_max_tokens_per_gpu),\n\
+          Invalid training_lr_scheduler_kwargs format: {e}\")\n\n        def _parse_int(value:\
+          \ object, default_val: int) -> int:\n            try:\n                if\
+          \ value is None:\n                    return default_val\n             \
+          \   if isinstance(value, int):\n                    return value\n     \
+          \           s = str(value).strip()\n                if not s:\n        \
+          \            return default_val\n                return int(s)\n       \
+          \     except Exception:\n                return default_val\n\n        def\
+          \ _compute_nproc_and_nodes() -> Tuple[int, int]:\n            nproc_auto\
+          \ = str(training_resource_num_procs_per_worker).strip().lower() == \"auto\"\
+          \n            nproc = training_resource_gpu_per_worker if nproc_auto else\
+          \ _parse_int(training_resource_num_procs_per_worker, 1)\n            if\
+          \ nproc <= 0:\n                nproc = 1\n            nnodes = _parse_int(training_resource_num_workers,\
+          \ 1)\n            if nnodes <= 0:\n                nnodes = 1\n        \
+          \    return nproc, nnodes\n\n        def _build_params() -> Dict[str, object]:\n\
+          \            \"\"\"Build OSFT/SFT parameter set for TrainingHub.\"\"\"\n\
+          \            nproc_per_node, nnodes = _compute_nproc_and_nodes()\n     \
+          \       base = {\n                \"model_path\": resolved_model_path,\n\
+          \                # Prefer JSONL export when available; fallback to resolved\
+          \ directory\n                \"data_path\": jsonl_path if os.path.exists(jsonl_path)\
+          \ else resolved_dataset_dir,\n                \"effective_batch_size\":\
+          \ int(training_effective_batch_size if training_effective_batch_size is\
+          \ not None else 128),\n                \"max_tokens_per_gpu\": int(training_max_tokens_per_gpu),\n\
           \                \"max_seq_len\": int(training_max_seq_len if training_max_seq_len\
           \ is not None else 8192),\n                \"learning_rate\": float(training_learning_rate\
           \ if training_learning_rate is not None else 5e-6),\n                \"\
           backend\": training_backend,\n                \"ckpt_output_dir\": checkpoints_dir,\n\
           \                \"data_output_dir\": training_data_output_dir or os.path.join(checkpoints_dir,\
-          \ \"_internal_data_processing\"),\n                \"target_patterns\":\
-          \ parsed_target_patterns or [],\n                \"seed\": int(training_seed)\
-          \ if training_seed is not None else 42,\n                \"use_liger\":\
-          \ bool(training_use_liger) if training_use_liger is not None else False,\n\
-          \                \"use_processed_dataset\": bool(training_use_processed_dataset)\
-          \ if training_use_processed_dataset is not None else False,\n          \
-          \      \"unmask_messages\": bool(training_unmask_messages) if training_unmask_messages\
-          \ is not None else False,\n                \"lr_scheduler\": training_lr_scheduler\
-          \ or \"constant\",\n                \"warmup_steps\": int(training_lr_warmup_steps)\
-          \ if training_lr_warmup_steps is not None else 0,\n                \"save_samples\"\
-          : int(training_save_samples) if training_save_samples is not None else 0,\n\
-          \                \"accelerate_full_state_at_epoch\": bool(training_accelerate_full_state_at_epoch)\
-          \ if training_accelerate_full_state_at_epoch is not None else False,\n \
-          \               \"lr_scheduler_kwargs\": parsed_lr_sched_kwargs or {},\n\
-          \                \"checkpoint_at_epoch\": bool(training_checkpoint_at_epoch)\
-          \ if training_checkpoint_at_epoch is not None else False,\n            \
-          \    \"save_final_checkpoint\": bool(training_save_final_checkpoint) if\
-          \ training_save_final_checkpoint is not None else False,\n             \
-          \   \"num_epochs\": int(training_num_epochs) if training_num_epochs is not\
-          \ None else 1,\n            }\n            if (training_algorithm or \"\"\
-          ).strip().upper() == \"OSFT\":\n                base[\"unfreeze_rank_ratio\"\
-          ] = float(training_unfreeze_rank_ratio)\n            return base\n\n   \
-          \     params = _build_params()\n\n        # Algorithm selection: include\
-          \ OSFT-only param when applicable\n        algo_value = TrainingHubAlgorithms.OSFT\
-          \ if (training_algorithm or \"\").strip().upper() != \"SFT\" else TrainingHubAlgorithms.SFT\n\
-          \        if algo_value == TrainingHubAlgorithms.OSFT:\n            params[\"\
-          unfreeze_rank_ratio\"] = float(training_unfreeze_rank_ratio)\n\n       \
-          \ # Build volumes and mounts (from passthrough only); do not inject env\
-          \ via pod overrides\n        # Cluster policy forbids env in podTemplateOverrides;\
-          \ use trainer.env for container env\n\n        volumes = []\n        volume_mounts\
-          \ = []\n        if kubernetes_config and getattr(kubernetes_config, \"volumes\"\
+          \ \"_internal_data_processing\"),\n                \"warmup_steps\": int(training_lr_warmup_steps)\
+          \ if training_lr_warmup_steps is not None else 0,\n                \"checkpoint_at_epoch\"\
+          : bool(training_checkpoint_at_epoch) if training_checkpoint_at_epoch is\
+          \ not None else False,\n                \"num_epochs\": int(training_num_epochs)\
+          \ if training_num_epochs is not None else 1,\n                \"nproc_per_node\"\
+          : int(nproc_per_node),\n                \"nnodes\": int(nnodes),\n\n   \
+          \         }\n            algo = (training_algorithm or \"\").strip().upper()\n\
+          \            if algo == \"OSFT\":\n                base[\"unfreeze_rank_ratio\"\
+          ] = float(training_unfreeze_rank_ratio)\n                base[\"target_patterns\"\
+          ] = parsed_target_patterns or []\n                if training_seed is not\
+          \ None:\n                    base[\"seed\"] = int(training_seed)\n     \
+          \           if training_use_liger is not None:\n                    base[\"\
+          use_liger\"] = bool(training_use_liger)\n                if training_use_processed_dataset\
+          \ is not None:\n                    base[\"use_processed_dataset\"] = bool(training_use_processed_dataset)\n\
+          \                if training_unmask_messages is not None:\n            \
+          \        base[\"unmask_messages\"] = bool(training_unmask_messages)\n  \
+          \              if training_lr_scheduler:\n                    base[\"lr_scheduler\"\
+          ] = training_lr_scheduler\n                if parsed_lr_sched_kwargs:\n\
+          \                    base[\"lr_scheduler_kwargs\"] = parsed_lr_sched_kwargs\n\
+          \                if training_save_final_checkpoint is not None:\n      \
+          \              base[\"save_final_checkpoint\"] = bool(training_save_final_checkpoint)\n\
+          \            elif algo == \"SFT\":\n                if training_save_samples\
+          \ is not None:\n                    base[\"save_samples\"] = int(training_save_samples)\n\
+          \                if training_accelerate_full_state_at_epoch is not None:\n\
+          \                    base[\"accelerate_full_state_at_epoch\"] = bool(training_accelerate_full_state_at_epoch)\n\
+          \            return base\n\n        params = _build_params()\n\n       \
+          \ # Algorithm selection: include OSFT-only param when applicable\n     \
+          \   algo_value = TrainingHubAlgorithms.OSFT if (training_algorithm or \"\
+          \").strip().upper() != \"SFT\" else TrainingHubAlgorithms.SFT\n        if\
+          \ algo_value == TrainingHubAlgorithms.OSFT:\n            params[\"unfreeze_rank_ratio\"\
+          ] = float(training_unfreeze_rank_ratio)\n\n        # Build volumes and mounts\
+          \ (from passthrough only); do not inject env via pod overrides\n       \
+          \ # Cluster policy forbids env in podTemplateOverrides; use trainer.env\
+          \ for container env\n\n        volumes = []\n        volume_mounts = []\n\
+          \        if kubernetes_config and getattr(kubernetes_config, \"volumes\"\
           , None):\n            volumes.extend(kubernetes_config.volumes)\n      \
           \  if kubernetes_config and getattr(kubernetes_config, \"volume_mounts\"\
           , None):\n            volume_mounts.extend(kubernetes_config.volume_mounts)\n\
@@ -1592,6 +1648,8 @@ root:
               componentInputParameter: training_env_labels
             training_num_epochs:
               componentInputParameter: training_hyper_epochs
+            training_pull_secret:
+              componentInputParameter: training_pull_secret
             training_resource_cpu_per_worker:
               componentInputParameter: training_res_cpu
             training_resource_gpu_per_worker:
@@ -1770,6 +1828,12 @@ root:
         description: K8s labels for training pods (key=val,...)
         isOptional: true
         parameterType: STRING
+      training_env_pull_secret:
+        defaultValue: ''
+        description: Pull secret for Red Hat Catalog, registry.redhat.io (Docker config.json
+          content)
+        isOptional: true
+        parameterType: STRING
       training_env_vars:
         defaultValue: ''
         description: Additional env vars (KEY=VAL,KEY=VAL)
@@ -1807,17 +1871,17 @@ root:
         parameterType: NUMBER_INTEGER
       training_hyper_target_patterns:
         defaultValue: ''
-        description: OSFT module patterns (comma-separated)
+        description: (OSFT only) OSFT module patterns (comma-separated)
         isOptional: true
         parameterType: STRING
       training_lr_scheduler:
         defaultValue: cosine
-        description: LR scheduler type (cosine, linear, constant)
+        description: (OSFT only) LR scheduler type (cosine, linear, constant)
         isOptional: true
         parameterType: STRING
       training_lr_scheduler_kwargs:
         defaultValue: ''
-        description: Extra scheduler params (key=val,...)
+        description: (OSFT only)Extra scheduler params (key=val,...)
         isOptional: true
         parameterType: STRING
       training_lr_warmup_steps:
@@ -1842,24 +1906,29 @@ root:
         parameterType: STRING
       training_model_unfreeze_ratio:
         defaultValue: 0.25
-        description: OSFT ratio of parameters to unfreeze (0.1-0.5)
+        description: (OSFT only) OSFT ratio of parameters to unfreeze (0.1-0.5)
         isOptional: true
         parameterType: NUMBER_DOUBLE
       training_opt_processed_dataset:
         defaultValue: false
-        description: True if dataset already has input_ids (False=process raw)
+        description: (OSFT only) True if dataset already has input_ids (False=process
+          raw)
         isOptional: true
         parameterType: BOOLEAN
       training_opt_unmask_messages:
         defaultValue: false
-        description: Unmask messages during chat data processing
+        description: (OSFT only) Unmask messages during chat data processing
         isOptional: true
         parameterType: BOOLEAN
       training_opt_use_liger:
         defaultValue: true
-        description: Enable Liger kernel optimizations
+        description: (OSFT only) Enable Liger kernel optimizations
         isOptional: true
         parameterType: BOOLEAN
+      training_pull_secret:
+        defaultValue: ''
+        isOptional: true
+        parameterType: STRING
       training_res_cpu:
         defaultValue: '8'
         description: CPU cores per training worker pod
@@ -1876,10 +1945,10 @@ root:
         isOptional: true
         parameterType: STRING
       training_res_num_procs:
-        defaultValue: 1.0
+        defaultValue: auto
         description: Processes per worker (usually equals GPUs)
         isOptional: true
-        parameterType: NUMBER_INTEGER
+        parameterType: STRING
       training_res_num_workers:
         defaultValue: 1.0
         description: Total worker pods (1=single-node, 2+=distributed)
@@ -1892,17 +1961,17 @@ root:
         parameterType: BOOLEAN
       training_save_final:
         defaultValue: true
-        description: Save final model checkpoint
+        description: (OSFT only) Save final model checkpoint
         isOptional: true
         parameterType: BOOLEAN
       training_save_full_state:
         defaultValue: false
-        description: Save full Accelerate state for resumption
+        description: (SFT only) Save full Accelerate state for resumption
         isOptional: true
         parameterType: BOOLEAN
       training_save_samples:
         defaultValue: 0.0
-        description: Number of samples to save (0 disables)
+        description: (SFT only) Number of samples to save (0 disables)
         isOptional: true
         parameterType: NUMBER_INTEGER
 schemaVersion: 2.1.0
