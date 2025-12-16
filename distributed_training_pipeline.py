@@ -91,6 +91,9 @@ def distributed_training_pipeline(
     # ^ Additional environment variables as comma-delimited key=value pairs.
     #   Example: "NCCL_DEBUG=INFO,CUDA_VISIBLE_DEVICES=0,1"
 
+    training_env_pull_secret: str = "",
+    # ^ Pull secret for Red Hat Catalog, registry.redhat.io (Docker config.json content).
+
     # =========================================================================
     # TRAINING - Hyperparameters (training_hyper_*)
     # =========================================================================
@@ -115,17 +118,17 @@ def distributed_training_pipeline(
     # ^ Random seed for reproducibility.
 
     training_hyper_target_patterns: str = "",
-    # ^ [OSFT] Comma-separated patterns for selecting modules to train.
+    # ^ (OSFT only) Comma-separated patterns for selecting modules to train.
     #   Leave empty for default selection.
 
     # =========================================================================
     # TRAINING - Learning Rate Schedule (training_lr_*)
     # =========================================================================
     training_lr_scheduler: str = "cosine",
-    # ^ Learning rate scheduler: "cosine", "linear", "constant".
+    # ^ (OSFT only) Learning rate scheduler: "cosine", "linear", "constant".
 
     training_lr_scheduler_kwargs: str = "",
-    # ^ Additional scheduler parameters as comma-delimited key=value pairs.
+    # ^ (OSFT only) Additional scheduler parameters as comma-delimited key=value pairs.
     #   Example: "num_cycles=1,num_warmup_steps=100"
 
     training_lr_warmup_steps: int = 0,
@@ -144,22 +147,25 @@ def distributed_training_pipeline(
     training_model_base: str = "Qwen/Qwen2.5-1.5B-Instruct",
     # ^ HuggingFace model ID or path to fine-tune.
 
+    training_pull_secret: str = "",
+    # ^ Pull secret for Red Hat Catalog, registry.redhat.io (Docker config.json content).
+
     training_model_unfreeze_ratio: float = 0.25,
-    # ^ [OSFT only] Ratio of parameters to unfreeze. Lower = more efficient,
+    # ^ (OSFT only) Ratio of parameters to unfreeze. Lower = more efficient,
     #   higher = more capacity. Typical range: 0.1-0.5.
 
     # =========================================================================
     # TRAINING - Optimizations (training_opt_*)
     # =========================================================================
     training_opt_processed_dataset: bool = False,
-    # ^ Set to True if dataset is already tokenized with input_ids.
+    # ^ (OSFT only) Set to True if dataset is already tokenized with input_ids.
     #   False (default) = process raw chat data.
 
     training_opt_unmask_messages: bool = False,
-    # ^ Whether to unmask messages during chat data processing.
+    # ^ (OSFT only) Whether to unmask messages during chat data processing.
 
     training_opt_use_liger: bool = True,
-    # ^ Enable Liger kernel optimizations for faster training.
+    # ^ (OSFT only) Enable Liger kernel optimizations for faster training.
     #   Requires Liger kernels in the training image.
 
     # =========================================================================
@@ -174,8 +180,8 @@ def distributed_training_pipeline(
     training_res_memory: str = "32Gi",
     # ^ Memory per training worker pod.
 
-    training_res_num_procs: int = 1,
-    # ^ Number of processes (ranks) per worker. Usually equals GPUs per worker.
+    training_res_num_procs: str = "auto",
+    # ^ Number of processes (ranks) per worker. "auto" uses GPUs per worker.
 
     training_res_num_workers: int = 1,
     # ^ Total number of worker pods. 1 = single-node, 2+ = multi-node distributed.
@@ -184,16 +190,16 @@ def distributed_training_pipeline(
     # TRAINING - Saving & Checkpoints (training_save_*)
     # =========================================================================
     training_save_at_epoch: bool = False,
-    # ^ Save a checkpoint at the end of each epoch.
+    # ^ Save a checkpoint at the end of each epoch. (Common)
 
     training_save_final: bool = True,
-    # ^ Save the final model checkpoint after training completes.
+    # ^ (OSFT only) Save the final model checkpoint after training completes.
 
     training_save_full_state: bool = False,
-    # ^ Save full Accelerate state at each epoch for resumption capability.
+    # ^ (SFT only) Save full Accelerate state at each epoch for resumption capability.
 
     training_save_samples: int = 0,
-    # ^ Number of samples to save during training. 0 disables.
+    # ^ (SFT only) Number of samples to save during training. 0 disables.
 
     # =========================================================================
     # EVALUATION - Configuration (eval_cfg_*)
@@ -285,32 +291,33 @@ def distributed_training_pipeline(
         training_env_hf_token: HuggingFace token for gated models (Llama, Mistral)
         training_env_labels: K8s labels for training pods (key=val,...)
         training_env_vars: Additional env vars (KEY=VAL,KEY=VAL)
+        training_env_pull_secret: Pull secret for Red Hat Catalog, registry.redhat.io (Docker config.json content)
         training_hyper_batch_size: Effective batch size (samples per optimizer step)
         training_hyper_epochs: Number of training epochs
         training_hyper_learning_rate: Learning rate (typical: 1e-6 to 1e-4)
         training_hyper_max_seq_len: Maximum sequence length in tokens
         training_hyper_max_tokens_per_gpu: Max tokens per GPU (memory cap)
         training_hyper_seed: Random seed for reproducibility
-        training_hyper_target_patterns: OSFT module patterns (comma-separated)
-        training_lr_scheduler: LR scheduler type (cosine, linear, constant)
-        training_lr_scheduler_kwargs: Extra scheduler params (key=val,...)
+        training_hyper_target_patterns: (OSFT only) OSFT module patterns (comma-separated)
+        training_lr_scheduler: (OSFT only) LR scheduler type (cosine, linear, constant)
+        training_lr_scheduler_kwargs: (OSFT only) Extra scheduler params (key=val,...)
         training_lr_warmup_steps: Warmup steps before full learning rate
         training_model_algorithm: Training algorithm - OSFT (continual learning) or SFT
         training_model_backend: Training backend - mini-trainer or instructlab-training
         training_model_base: HuggingFace model ID or path to fine-tune
-        training_model_unfreeze_ratio: OSFT ratio of parameters to unfreeze (0.1-0.5)
-        training_opt_processed_dataset: True if dataset already has input_ids (False=process raw)
-        training_opt_unmask_messages: Unmask messages during chat data processing
-        training_opt_use_liger: Enable Liger kernel optimizations
+        training_model_unfreeze_ratio: (OSFT only) OSFT ratio of parameters to unfreeze (0.1-0.5)
+        training_opt_processed_dataset: (OSFT only) True if dataset already has input_ids (False=process raw)
+        training_opt_unmask_messages: (OSFT only) Unmask messages during chat data processing
+        training_opt_use_liger: (OSFT only) Enable Liger kernel optimizations
         training_res_cpu: CPU cores per training worker pod
         training_res_gpu: GPUs per training worker pod
         training_res_memory: Memory per training worker pod (e.g., 32Gi)
         training_res_num_procs: Processes per worker (usually equals GPUs)
         training_res_num_workers: Total worker pods (1=single-node, 2+=distributed)
         training_save_at_epoch: Save checkpoint at end of each epoch
-        training_save_final: Save final model checkpoint
-        training_save_full_state: Save full Accelerate state for resumption
-        training_save_samples: Number of samples to save (0 disables)
+        training_save_final: (OSFT only) Save final model checkpoint
+        training_save_full_state: (SFT only) Save full Accelerate state for resumption
+        training_save_samples: (SFT only) Number of samples to save (0 disables)
         eval_cfg_batch_size: Eval batch size (auto or integer)
         eval_cfg_limit: Max samples per task (-1 = all)
         eval_cfg_log_samples: Log individual sample predictions
@@ -389,6 +396,7 @@ def distributed_training_pipeline(
         training_save_final_checkpoint=training_save_final,
         # Environment and metadata (training_env_*)
         training_hf_token=training_env_hf_token,
+        training_pull_secret=training_pull_secret,
         training_envs=training_env_vars,
         training_metadata_labels=training_env_labels,
         training_metadata_annotations=training_env_annotations,

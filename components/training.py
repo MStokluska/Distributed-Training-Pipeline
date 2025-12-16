@@ -16,6 +16,7 @@ from typing import Optional
     base_image="quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438",
     packages_to_install=[
         "kubernetes",
+        "olot",
     ],
     task_config_passthroughs=[
         dsl.TaskConfigField.RESOURCES,
@@ -38,39 +39,49 @@ def train_model(
     training_base_model: str = "Qwen/Qwen2.5-1.5B-Instruct",
     # Training algorithm selector
     training_algorithm: str = "OSFT",
-    # OSFT parameters (prefixed with training_)
-    training_unfreeze_rank_ratio: float = 0.25,
+    # ------------------------------
+    # Common params (used by both OSFT and SFT)
+    # ------------------------------
     training_effective_batch_size: int = 128,
     training_max_tokens_per_gpu: int = 64000,
     training_max_seq_len: int = 8192,
     training_learning_rate: Optional[float] = None,
     training_backend: str = "mini-trainer",
-    training_target_patterns: str = "",
-    training_seed: Optional[int] = None,
-    training_use_liger: Optional[bool] = None,
-    training_use_processed_dataset: Optional[bool] = None,
-    training_unmask_messages: Optional[bool] = None,
-    training_lr_scheduler: Optional[str] = None,
     training_lr_warmup_steps: Optional[int] = None,
-    training_save_samples: Optional[int] = None,
-    training_accelerate_full_state_at_epoch: Optional[bool] = None,
-    training_lr_scheduler_kwargs: str = "",
     training_checkpoint_at_epoch: Optional[bool] = None,
-    training_save_final_checkpoint: Optional[bool] = None,
     training_num_epochs: Optional[int] = None,
     training_data_output_dir: Optional[str] = None,
     # HuggingFace token for gated models (optional - leave empty if not needed)
     training_hf_token: str = "",
+    # Pull secret for registry.redhat.io in Docker config.json format (optional)
+    training_pull_secret: str = "",
     # Env overrides: "KEY=VAL,KEY=VAL"
     training_envs: str = "",
     # Resource and runtime parameters (per worker/pod)
     training_resource_cpu_per_worker: str = "8",
     training_resource_gpu_per_worker: int = 1,
     training_resource_memory_per_worker: str = "32Gi",
-    training_resource_num_procs_per_worker: int = 1,
+    training_resource_num_procs_per_worker: str = "auto",
     training_resource_num_workers: int = 1,
     training_metadata_labels: str = "",
     training_metadata_annotations: str = "",
+    # ------------------------------
+    # OSFT-only params (see ai-innovation/training_hub/src/training_hub/algorithms/osft.py)
+    # ------------------------------
+    training_unfreeze_rank_ratio: float = 0.25,
+    training_target_patterns: str = "",
+    training_seed: Optional[int] = None,
+    training_use_liger: Optional[bool] = None,
+    training_use_processed_dataset: Optional[bool] = None,
+    training_unmask_messages: Optional[bool] = None,
+    training_lr_scheduler: Optional[str] = None,
+    training_lr_scheduler_kwargs: str = "",
+    training_save_final_checkpoint: Optional[bool] = None,
+    # ------------------------------
+    # SFT-only params (see ai-innovation/training_hub/src/training_hub/algorithms/sft.py)
+    # ------------------------------
+    training_save_samples: Optional[int] = None,
+    training_accelerate_full_state_at_epoch: Optional[bool] = None,
     # KFP TaskConfig passthrough for volumes/env/resources, etc.
     kubernetes_config: dsl.TaskConfig = None,
 ) -> str:
@@ -161,7 +172,7 @@ def train_model(
     Returns:
         Status message string.
     """
-    import os, sys, json, time, logging, re
+    import os, sys, json, time, logging, re, subprocess, shutil
     from typing import Dict, List, Tuple, Optional as _Optional
 
     # ------------------------------
@@ -303,7 +314,6 @@ def train_model(
     # Dataset resolution
     # ------------------------------
     from datasets import load_dataset, load_from_disk, Dataset
-    import shutil
 
     resolved_dataset_dir = os.path.join(pvc_path, "dataset", "train")
     os.makedirs(resolved_dataset_dir, exist_ok=True)
@@ -382,10 +392,11 @@ def train_model(
                 ds: Dataset = load_dataset(rp, split="train")
                 ds.save_to_disk(out_dir)
                 return
-        # 3) Default fallback (Table-GPT)
-        logger.info("No dataset provided. Falling back to 'LipengCS/Table-GPT'")
-        ds: Dataset = load_dataset("LipengCS/Table-GPT", "All", split="train")
-        ds.save_to_disk(out_dir)
+        # 3) No fallback: require an explicit dataset source
+        raise ValueError(
+            "No dataset provided or resolvable. Please supply an input artifact, a PVC path via metadata "
+            "('pvc_path' or 'pvc_dir'), or a remote source via metadata['artifact_path'] (S3/HTTP/HF repo id)."
+        )
 
     _resolve_dataset(dataset, resolved_dataset_dir)
 
@@ -410,6 +421,141 @@ def train_model(
     except Exception as _e:
         logger.warning(f"Failed to export JSONL dataset at {resolved_dataset_dir}: {_e}")
         # Leave jsonl_path as default; downstream will fallback to directory if file not present
+
+    # ------------------------------
+    # Model resolution (supports HF ID/local path or oci:// registry ref)
+    # ------------------------------
+    def _skopeo_copy_to_dir(oci_ref: str, dest_dir: str, auth_json: str | None = None) -> None:
+        """Use skopeo to copy a registry image to a plain directory ('dir:' transport)."""
+        os.makedirs(dest_dir, exist_ok=True)
+        authfile_path = None
+        try:
+            if auth_json:
+                authfile_path = "/tmp/skopeo-auth.json"
+                with open(authfile_path, "w") as f:
+                    f.write(auth_json)
+        except Exception as e:
+            logger.warning(f"Failed to prepare skopeo auth file: {e}")
+            authfile_path = None
+        # skopeo syntax: skopeo copy [--authfile FILE] docker://REF dir:DESTDIR
+        cmd = ["skopeo", "copy"]
+        if authfile_path:
+            cmd.extend(["--authfile", authfile_path])
+        cmd.extend([f"docker://{oci_ref}", f"dir:{dest_dir}"])
+        logger.info(f"Running: {' '.join(cmd)}")
+        res = subprocess.run(cmd, text=True, capture_output=True)
+        if res.returncode != 0:
+            stderr = (res.stderr or "").strip()
+            logger.error(f"skopeo copy failed (exit={res.returncode}): {stderr}")
+            if "unauthorized" in stderr.lower() or "authentication required" in stderr.lower():
+                logger.error("Authentication error detected pulling from registry. "
+                             "Provide credentials via --authfile or mounted Docker config.")
+            res.check_returncode()
+        else:
+            out_preview = "\n".join((res.stdout or "").splitlines()[-20:])
+            if out_preview:
+                logger.info(f"skopeo copy output (tail):\n{out_preview}")
+
+    def _extract_models_from_dir_image(image_dir: str, out_dir: str) -> List[str]:
+        """Extract 'models/' subtree from skopeo dir transport output into out_dir."""
+        import tarfile
+        os.makedirs(out_dir, exist_ok=True)
+        extracted: List[str] = []
+        logger.info(f"Extracting 'models/' from dir image {image_dir} to {out_dir}")
+        try:
+            for fname in os.listdir(image_dir):
+                fpath = os.path.join(image_dir, fname)
+                if not os.path.isfile(fpath):
+                    continue
+                if fname.endswith(".json") or fname in {"manifest", "index.json"}:
+                    continue
+                try:
+                    with tarfile.open(fpath, mode="r:*") as tf:
+                        for member in tf.getmembers():
+                            if member.isfile() and member.name.startswith("models/"):
+                                tf.extract(member, path=out_dir)
+                                extracted.append(member.name)
+                except tarfile.ReadError:
+                    continue
+                except Exception as _e:
+                    logger.warning(f"Failed to extract from {fname}: {_e}")
+        except Exception as e:
+            logger.warning(f"Dir image extraction failed: {e}")
+        logger.info(f"Extraction completed; entries extracted: {len(extracted)}")
+        return extracted
+
+    def _discover_hf_model_dir(root: str) -> _Optional[str]:
+        """Find a Hugging Face model directory containing config.json, weights, and tokenizer."""
+        weight_candidates = {
+            "pytorch_model.bin",
+            "pytorch_model.bin.index.json",
+            "model.safetensors",
+            "model.safetensors.index.json",
+        }
+        tokenizer_candidates = {"tokenizer.json", "tokenizer.model"}
+        for dirpath, _dirnames, filenames in os.walk(root):
+            fn = set(filenames)
+            if "config.json" in fn and (fn & weight_candidates) and (fn & tokenizer_candidates):
+                return dirpath
+        return None
+
+    def _log_dir_tree(root: str, max_depth: int = 3, max_entries: int = 800) -> None:
+        """Compact tree logger for debugging large directories."""
+        try:
+            if not (root and os.path.isdir(root)):
+                logger.info(f"(tree) Path is not a directory: {root}")
+                return
+            logger.info(f"(tree) {root} (max_depth={max_depth}, max_entries={max_entries})")
+            total = 0
+            root_depth = root.rstrip(os.sep).count(os.sep)
+            for dirpath, dirnames, filenames in os.walk(root):
+                depth = dirpath.rstrip(os.sep).count(os.sep) - root_depth
+                if depth >= max_depth:
+                    dirnames[:] = []
+                indent = "  " * depth
+                logger.info(f"(tree){indent}{os.path.basename(dirpath) or dirpath}/")
+                total += 1
+                if total >= max_entries:
+                    logger.info("(tree) ... truncated ...")
+                    return
+                for fname in sorted(filenames)[:50]:
+                    logger.info(f"(tree){indent}  {fname}")
+                    total += 1
+                    if total >= max_entries:
+                        logger.info("(tree) ... truncated ...")
+                        return
+        except Exception as _e:
+            logger.warning(f"Failed to render directory tree for {root}: {_e}")
+
+    resolved_model_path: str = training_base_model
+    if isinstance(training_base_model, str) and training_base_model.startswith("oci://"):
+        # Strip scheme and perform skopeo copy to a plain directory on PVC
+        ref_no_scheme = training_base_model[len("oci://") :]
+        dir_image = os.path.join(pvc_path, "model-dir")
+        model_out_dir = os.path.join(pvc_path, "model")
+        # Clean output directory for a fresh extraction
+        try:
+            if os.path.isdir(model_out_dir):
+                shutil.rmtree(model_out_dir)
+        except Exception:
+            pass
+        # Use provided pull secret (Docker config.json content) if present
+        auth_json = training_pull_secret.strip() or None
+        _skopeo_copy_to_dir(ref_no_scheme, dir_image, auth_json)
+        extracted = _extract_models_from_dir_image(dir_image, model_out_dir)
+        if not extracted:
+            logger.warning("No files extracted from '/models' in the OCI artifact; model discovery may fail.")
+        _log_dir_tree(model_out_dir, max_depth=3, max_entries=800)
+        # Typical extraction path is '<out_dir>/models/...'
+        candidate_root = os.path.join(model_out_dir, "models")
+        hf_dir = _discover_hf_model_dir(candidate_root if os.path.isdir(candidate_root) else model_out_dir)
+        if hf_dir:
+            logger.info(f"Detected HuggingFace model directory: {hf_dir}")
+            resolved_model_path = hf_dir
+        else:
+            logger.warning("Failed to detect a HuggingFace model directory after extraction; "
+                           "continuing with model_out_dir (may fail downstream).")
+            resolved_model_path = model_out_dir
 
     # ------------------------------
     # Training (placeholder for TrainingHubTrainer)
@@ -468,10 +614,34 @@ def train_model(
             except Exception as e:
                 raise ValueError(f"Invalid training_lr_scheduler_kwargs format: {e}")
 
+        def _parse_int(value: object, default_val: int) -> int:
+            try:
+                if value is None:
+                    return default_val
+                if isinstance(value, int):
+                    return value
+                s = str(value).strip()
+                if not s:
+                    return default_val
+                return int(s)
+            except Exception:
+                return default_val
+
+        def _compute_nproc_and_nodes() -> Tuple[int, int]:
+            nproc_auto = str(training_resource_num_procs_per_worker).strip().lower() == "auto"
+            nproc = training_resource_gpu_per_worker if nproc_auto else _parse_int(training_resource_num_procs_per_worker, 1)
+            if nproc <= 0:
+                nproc = 1
+            nnodes = _parse_int(training_resource_num_workers, 1)
+            if nnodes <= 0:
+                nnodes = 1
+            return nproc, nnodes
+
         def _build_params() -> Dict[str, object]:
             """Build OSFT/SFT parameter set for TrainingHub."""
+            nproc_per_node, nnodes = _compute_nproc_and_nodes()
             base = {
-                "model_path": training_base_model,
+                "model_path": resolved_model_path,
                 # Prefer JSONL export when available; fallback to resolved directory
                 "data_path": jsonl_path if os.path.exists(jsonl_path) else resolved_dataset_dir,
                 "effective_batch_size": int(training_effective_batch_size if training_effective_batch_size is not None else 128),
@@ -481,22 +651,36 @@ def train_model(
                 "backend": training_backend,
                 "ckpt_output_dir": checkpoints_dir,
                 "data_output_dir": training_data_output_dir or os.path.join(checkpoints_dir, "_internal_data_processing"),
-                "target_patterns": parsed_target_patterns or [],
-                "seed": int(training_seed) if training_seed is not None else 42,
-                "use_liger": bool(training_use_liger) if training_use_liger is not None else False,
-                "use_processed_dataset": bool(training_use_processed_dataset) if training_use_processed_dataset is not None else False,
-                "unmask_messages": bool(training_unmask_messages) if training_unmask_messages is not None else False,
-                "lr_scheduler": training_lr_scheduler or "constant",
                 "warmup_steps": int(training_lr_warmup_steps) if training_lr_warmup_steps is not None else 0,
-                "save_samples": int(training_save_samples) if training_save_samples is not None else 0,
-                "accelerate_full_state_at_epoch": bool(training_accelerate_full_state_at_epoch) if training_accelerate_full_state_at_epoch is not None else False,
-                "lr_scheduler_kwargs": parsed_lr_sched_kwargs or {},
                 "checkpoint_at_epoch": bool(training_checkpoint_at_epoch) if training_checkpoint_at_epoch is not None else False,
-                "save_final_checkpoint": bool(training_save_final_checkpoint) if training_save_final_checkpoint is not None else False,
                 "num_epochs": int(training_num_epochs) if training_num_epochs is not None else 1,
+                "nproc_per_node": int(nproc_per_node),
+                "nnodes": int(nnodes),
+                
             }
-            if (training_algorithm or "").strip().upper() == "OSFT":
+            algo = (training_algorithm or "").strip().upper()
+            if algo == "OSFT":
                 base["unfreeze_rank_ratio"] = float(training_unfreeze_rank_ratio)
+                base["target_patterns"] = parsed_target_patterns or []
+                if training_seed is not None:
+                    base["seed"] = int(training_seed)
+                if training_use_liger is not None:
+                    base["use_liger"] = bool(training_use_liger)
+                if training_use_processed_dataset is not None:
+                    base["use_processed_dataset"] = bool(training_use_processed_dataset)
+                if training_unmask_messages is not None:
+                    base["unmask_messages"] = bool(training_unmask_messages)
+                if training_lr_scheduler:
+                    base["lr_scheduler"] = training_lr_scheduler
+                if parsed_lr_sched_kwargs:
+                    base["lr_scheduler_kwargs"] = parsed_lr_sched_kwargs
+                if training_save_final_checkpoint is not None:
+                    base["save_final_checkpoint"] = bool(training_save_final_checkpoint)
+            elif algo == "SFT":
+                if training_save_samples is not None:
+                    base["save_samples"] = int(training_save_samples)
+                if training_accelerate_full_state_at_epoch is not None:
+                    base["accelerate_full_state_at_epoch"] = bool(training_accelerate_full_state_at_epoch)
             return base
 
         params = _build_params()
