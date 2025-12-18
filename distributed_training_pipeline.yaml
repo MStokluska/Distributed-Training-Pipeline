@@ -21,6 +21,7 @@
 #    registry_model_name: str [Default: 'fine-tuned-model']
 #    registry_model_version: str [Default: '1.0.0']
 #    registry_port: int [Default: 8080.0]
+#    registry_source_namespace: str [Default: '']
 #    shared_log_file: str [Default: 'pipeline_log.txt']
 #    training_env_annotations: str [Default: '']
 #    training_env_hf_token: str [Default: '']
@@ -173,6 +174,26 @@ components:
           defaultValue: pipeline_log.txt
           isOptional: true
           parameterType: STRING
+        source_namespace:
+          defaultValue: ''
+          description: Namespace where pipeline runs (auto-detected if empty).
+          isOptional: true
+          parameterType: STRING
+        source_pipeline_name:
+          defaultValue: ''
+          description: Name of the source KFP pipeline.
+          isOptional: true
+          parameterType: STRING
+        source_pipeline_run_id:
+          defaultValue: ''
+          description: Unique ID of the pipeline run.
+          isOptional: true
+          parameterType: STRING
+        source_pipeline_run_name:
+          defaultValue: ''
+          description: Display name of the pipeline run.
+          isOptional: true
+          parameterType: STRING
     outputDefinitions:
       parameters:
         Output:
@@ -185,61 +206,40 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
-          description: 'Input dataset artifact (preferred). If not present, this component
-
-            will attempt to load from a remote path specified in dataset.metadata.
-
-            - metadata["artifact_path"]: remote dataset path (e.g., s3://..., https://...,
-            or HF repo id)
-
-            - metadata["pvc_dir"]: pre-staged PVC directory to use if present'
           isOptional: true
       parameters:
         kubernetes_config:
-          description: TaskConfig passthrough (volumes, mounts, env, resources, tolerations,
-            etc.).
           isOptional: true
           parameterType: TASK_CONFIG
         pvc_path:
-          description: Root of the workspace PVC for this run.
           parameterType: STRING
         training_accelerate_full_state_at_epoch:
-          description: Whether to save full Accelerate state at each epoch (optional).
           isOptional: true
           parameterType: BOOLEAN
         training_algorithm:
           defaultValue: OSFT
-          description: Training algorithm ("OSFT" | "SFT"). OSFT adds continual learning
-            support.
           isOptional: true
           parameterType: STRING
         training_backend:
           defaultValue: mini-trainer
-          description: Trainer backend variant (e.g., "mini-trainer").
           isOptional: true
           parameterType: STRING
         training_base_model:
           defaultValue: Qwen/Qwen2.5-1.5B-Instruct
-          description: HuggingFace model ID to fine-tune (e.g., "Qwen/Qwen2.5-1.5B-Instruct").
           isOptional: true
           parameterType: STRING
         training_checkpoint_at_epoch:
-          description: Save a checkpoint at each epoch boundary.
           isOptional: true
           parameterType: BOOLEAN
         training_data_output_dir:
-          description: Optional secondary output directory on PVC.
           isOptional: true
           parameterType: STRING
         training_effective_batch_size:
           defaultValue: 128.0
-          description: "Per-step batch size. Guidance:\n- 1 GPU: 16\u201332\n- 2 GPUs:\
-            \ 32\u201364\n- 4 GPUs: 64\u2013128"
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_envs:
           defaultValue: ''
-          description: Comma-separated env overrides ("KEY=VAL,KEY=VAL").
           isOptional: true
           parameterType: STRING
         training_hf_token:
@@ -247,46 +247,35 @@ components:
           isOptional: true
           parameterType: STRING
         training_learning_rate:
-          description: Learning rate (typ. 1e-6 to 1e-4; 5e-6 is a good OSFT default).
           isOptional: true
           parameterType: NUMBER_DOUBLE
         training_lr_scheduler:
-          description: LR scheduler ("cosine" | "linear" | "constant").
           isOptional: true
           parameterType: STRING
         training_lr_scheduler_kwargs:
           defaultValue: ''
-          description: 'Comma-delimited key=value string for scheduler kwargs
-
-            (e.g., "num_cycles=1,num_warmup_steps=100").'
           isOptional: true
           parameterType: STRING
         training_lr_warmup_steps:
-          description: LR warmup steps (0 for none).
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_max_seq_len:
           defaultValue: 8192.0
-          description: "Max sequence length (typical 2048\u20138192)."
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_max_tokens_per_gpu:
           defaultValue: 64000.0
-          description: Token budget per GPU for memory mgmt.
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_metadata_annotations:
           defaultValue: ''
-          description: Comma-separated annotations ("k=v,k=v") for pod template.
           isOptional: true
           parameterType: STRING
         training_metadata_labels:
           defaultValue: ''
-          description: Comma-separated labels ("k=v,k=v") for pod template.
           isOptional: true
           parameterType: STRING
         training_num_epochs:
-          description: "Number of epochs (1 = quick test; 3\u20135 = better convergence)."
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_pull_secret:
@@ -295,44 +284,35 @@ components:
           parameterType: STRING
         training_resource_cpu_per_worker:
           defaultValue: '8'
-          description: CPU limit/request per worker (e.g., "8").
           isOptional: true
           parameterType: STRING
         training_resource_gpu_per_worker:
           defaultValue: 1.0
-          description: GPUs per worker (e.g., 1). Typically equals num procs.
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_resource_memory_per_worker:
           defaultValue: 32Gi
-          description: Memory per worker (e.g., "32Gi").
           isOptional: true
           parameterType: STRING
         training_resource_num_procs_per_worker:
           defaultValue: auto
-          description: Processes (ranks) per worker (usually equals GPUs/worker).
           isOptional: true
           parameterType: STRING
         training_resource_num_workers:
           defaultValue: 1.0
-          description: Total worker pods (1 = single-node; 2+ = multi-node).
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_save_final_checkpoint:
-          description: Save the final model checkpoint.
           isOptional: true
           parameterType: BOOLEAN
         training_save_samples:
-          description: Number of samples to save during SFT (optional).
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_seed:
-          description: Random seed for reproducibility.
           isOptional: true
           parameterType: NUMBER_INTEGER
         training_target_patterns:
           defaultValue: ''
-          description: Comma-separated target modules/patterns (algorithm-specific).
           isOptional: true
           parameterType: STRING
         training_unfreeze_rank_ratio:
@@ -340,15 +320,12 @@ components:
           isOptional: true
           parameterType: NUMBER_DOUBLE
         training_unmask_messages:
-          description: Whether to unmask chat messages if applicable.
           isOptional: true
           parameterType: BOOLEAN
         training_use_liger:
-          description: Enable Liger kernel optimizations (image must include kernels).
           isOptional: true
           parameterType: BOOLEAN
         training_use_processed_dataset:
-          description: Whether dataset is already processed.
           isOptional: true
           parameterType: BOOLEAN
     outputDefinitions:
@@ -381,17 +358,24 @@ components:
           artifactType:
             schemaTitle: system.Dataset
             schemaVersion: 0.0.1
+          description: JSONL dataset in chat format for custom holdout evaluation.
           isOptional: true
         model_artifact:
           artifactType:
             schemaTitle: system.Model
             schemaVersion: 0.0.1
+          description: KFP Model artifact from a previous pipeline step.
           isOptional: true
       parameters:
         batch_size:
           defaultValue: auto
           isOptional: true
           parameterType: STRING
+        custom_eval_max_tokens:
+          defaultValue: 256.0
+          description: 'Max tokens for generation in custom eval (default: 256).'
+          isOptional: true
+          parameterType: NUMBER_INTEGER
         gen_kwargs:
           defaultValue: {}
           isOptional: true
@@ -406,12 +390,15 @@ components:
           parameterType: BOOLEAN
         model_args:
           defaultValue: {}
+          description: 'Dictionary for model initialization (e.g. {"dtype": "float16"}).'
           isOptional: true
           parameterType: STRUCT
         model_path:
+          description: String path or HF ID. Used if model_artifact is None.
           isOptional: true
           parameterType: STRING
         task_names:
+          description: List of benchmark task names (e.g. ["mmlu", "gsm8k"]).
           parameterType: LIST
         verbosity:
           defaultValue: INFO
@@ -533,39 +520,28 @@ deploymentSpec:
           \               f\"Item {i}, message {j}: invalid role '{msg['role']}'.\
           \ \"\n                        f\"Must be one of {valid_roles}\"\n      \
           \              )\n\n        log_message(f\"Dataset validated: {len(dataset)}\
-          \ examples in chat format\")\n        return True\n\n    def _parse_hf_path_and_config(hf_path:\
-          \ str) -> tuple[str, str | None]:\n        \"\"\"Support optional HF config\
-          \ via query, e.g., 'repo?config=All'.\"\"\"\n        # Simple query parse:\
-          \ look for '?config='\n        if \"?config=\" in hf_path:\n           \
-          \ base, q = hf_path.split(\"?config=\", 1)\n            config = q.split(\"\
-          &\", 1)[0].strip() or None\n            return base.strip(), config\n  \
-          \      return hf_path, None\n\n    def download_from_huggingface(dataset_path:\
+          \ examples in chat format\")\n        return True\n\n    def download_from_huggingface(dataset_path:\
           \ str) -> Dataset:\n        \"\"\"Download dataset from HuggingFace.\"\"\
           \"\n        log_message(f\"Downloading from HuggingFace: {dataset_path}\"\
           )\n\n        # Set up authentication if token provided\n        if hf_token:\n\
           \            log_message(\"Using provided HuggingFace token for authentication\"\
-          )\n\n        # Support optional config in the path (e.g., '?config=All')\n\
-          \        hf_repo, hf_config = _parse_hf_path_and_config(dataset_path)\n\n\
-          \        # Try to load with \"train\" split first\n        load_kwargs =\
-          \ {\n            \"path\": hf_repo,\n            \"split\": \"train\",\n\
-          \        }\n        if hf_config:\n            load_kwargs[\"name\"] = hf_config\n\
-          \n        if hf_token:\n            load_kwargs[\"token\"] = hf_token\n\n\
-          \        try:\n            dataset = load_dataset(**load_kwargs)\n     \
-          \       log_message(f\"Downloaded {len(dataset)} examples from HuggingFace\
+          )\n\n        # Try to load with \"train\" split first\n        load_kwargs\
+          \ = {\n            \"path\": dataset_path,\n            \"split\": \"train\"\
+          ,\n        }\n\n        if hf_token:\n            load_kwargs[\"token\"\
+          ] = hf_token\n\n        try:\n            dataset = load_dataset(**load_kwargs)\n\
+          \            log_message(f\"Downloaded {len(dataset)} examples from HuggingFace\
           \ (split: train)\")\n            return dataset\n\n        except ValueError\
           \ as e:\n            # If \"train\" split doesn't exist, try to find an\
           \ alternative\n            if \"Unknown split\" in str(e):\n           \
           \     log_message(f\"'train' split not found, attempting to detect available\
           \ splits...\")\n\n                # Load dataset info without specifying\
           \ split\n                try:\n                    load_kwargs_no_split\
-          \ = {\"path\": hf_repo}\n                    if hf_config:\n           \
-          \             load_kwargs_no_split[\"name\"] = hf_config\n             \
-          \       if hf_token:\n                        load_kwargs_no_split[\"token\"\
-          ] = hf_token\n\n                    # Load all splits\n                \
-          \    dataset_dict = load_dataset(**load_kwargs_no_split)\n\n           \
-          \         # Try common training split names in order of preference\n   \
-          \                 preferred_splits = [\"train_sft\", \"train_gen\", \"train\"\
-          , \"training\"]\n\n                    for split_name in preferred_splits:\n\
+          \ = {\"path\": dataset_path}\n                    if hf_token:\n       \
+          \                 load_kwargs_no_split[\"token\"] = hf_token\n\n       \
+          \             # Load all splits\n                    dataset_dict = load_dataset(**load_kwargs_no_split)\n\
+          \n                    # Try common training split names in order of preference\n\
+          \                    preferred_splits = [\"train_sft\", \"train_gen\", \"\
+          train\", \"training\"]\n\n                    for split_name in preferred_splits:\n\
           \                        if split_name in dataset_dict:\n              \
           \              log_message(f\"Using split: {split_name}\")\n           \
           \                 dataset = dataset_dict[split_name]\n                 \
@@ -693,7 +669,7 @@ deploymentSpec:
         - -c
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
-          \ python3 -m pip install --quiet --no-warn-script-location 'model-registry==0.2.10'\
+          \ python3 -m pip install --quiet --no-warn-script-location 'model-registry==0.3.4'\
           \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
           $0\" \"$@\"\n"
@@ -715,23 +691,36 @@ deploymentSpec:
           \    model_name: str = \"fine-tuned-model\",\n    model_version: str = \"\
           1.0.0\",\n    model_format_name: str = \"pytorch\",\n    model_format_version:\
           \ str = \"1.0\",\n    model_description: str = \"\",\n    author: str =\
-          \ \"pipeline\",\n    shared_log_file: str = \"pipeline_log.txt\",\n) ->\
-          \ str:\n    \"\"\"Register model to Kubeflow Model Registry.\n\n    Uses\
-          \ the upstream model artifact (input_model) produced by training,\n    or\
-          \ falls back to PVC path if no artifact is provided.\n\n    Args:\n    \
-          \    input_model: Model artifact from training step.\n        input_metrics:\
-          \ Training metrics.\n        eval_metrics: Evaluation metrics from lm-eval.\n\
-          \        eval_results: Full evaluation results JSON artifact.\n    \"\"\"\
-          \n    import os\n    from model_registry import ModelRegistry\n    from\
-          \ model_registry.exceptions import StoreError\n\n    print(\"=\" * 60)\n\
-          \    print(\"MODEL REGISTRY COMPONENT\")\n    print(\"=\" * 60)\n\n    #\
-          \ Derive model URI from upstream artifact; use user-provided name (prioritize\
-          \ user input)\n    resolved_model_name = model_name  # User's parameter\
-          \ takes precedence\n    model_uri = \"\"\n    base_model_name = None\n \
-          \   if input_model:\n        meta = getattr(input_model, \"metadata\", {})\
-          \ or {}\n        base_model_name = meta.get(\"model_name\")  # e.g., \"\
-          Qwen/Qwen2.5-1.5B-Instruct\"\n        # Only use metadata name if user didn't\
-          \ provide one (kept default)\n        if model_name == \"fine-tuned-model\"\
+          \ \"pipeline\",\n    shared_log_file: str = \"pipeline_log.txt\",\n    #\
+          \ -------------------------------------------------------------------------\n\
+          \    # PROVENANCE / LINEAGE FIELDS (auto-populated from KFP placeholders)\n\
+          \    # -------------------------------------------------------------------------\n\
+          \    source_pipeline_name: str = \"\",\n    # ^ Name of the KFP pipeline\
+          \ that produced this model.\n    source_pipeline_run_id: str = \"\",\n \
+          \   # ^ Unique ID of the pipeline run.\n    source_pipeline_run_name: str\
+          \ = \"\",\n    # ^ Display name/job name of the pipeline run.\n    source_namespace:\
+          \ str = \"\",\n    # ^ Namespace where pipeline runs. Used for provenance\
+          \ link in UI.\n    #   If empty, auto-detected from pod's namespace.\n)\
+          \ -> str:\n    \"\"\"Register model to Kubeflow Model Registry with full\
+          \ provenance tracking.\n\n    Uses the upstream model artifact (input_model)\
+          \ produced by training,\n    or falls back to PVC path if no artifact is\
+          \ provided.\n\n    Args:\n        input_model: Model artifact from training\
+          \ step.\n        input_metrics: Training metrics.\n        eval_metrics:\
+          \ Evaluation metrics from lm-eval.\n        eval_results: Full evaluation\
+          \ results JSON artifact.\n        source_pipeline_name: Name of the source\
+          \ KFP pipeline.\n        source_pipeline_run_id: Unique ID of the pipeline\
+          \ run.\n        source_pipeline_run_name: Display name of the pipeline run.\n\
+          \        source_namespace: Namespace where pipeline runs (auto-detected\
+          \ if empty).\n    \"\"\"\n    import os\n    from model_registry import\
+          \ ModelRegistry\n    from model_registry.exceptions import StoreError\n\n\
+          \    print(\"=\" * 60)\n    print(\"MODEL REGISTRY COMPONENT\")\n    print(\"\
+          =\" * 60)\n\n    # Derive model URI from upstream artifact; use user-provided\
+          \ name (prioritize user input)\n    resolved_model_name = model_name  #\
+          \ User's parameter takes precedence\n    model_uri = \"\"\n    base_model_name\
+          \ = None\n    if input_model:\n        meta = getattr(input_model, \"metadata\"\
+          , {}) or {}\n        base_model_name = meta.get(\"model_name\")  # e.g.,\
+          \ \"Qwen/Qwen2.5-1.5B-Instruct\"\n        # Only use metadata name if user\
+          \ didn't provide one (kept default)\n        if model_name == \"fine-tuned-model\"\
           \ and base_model_name:\n            resolved_model_name = base_model_name\n\
           \        model_uri = meta.get(\"artifact_path\") or getattr(input_model,\
           \ \"path\", \"\") or model_uri\n        if not model_uri:\n            model_uri\
@@ -750,31 +739,50 @@ deploymentSpec:
           \            port=registry_port,\n            author=author,\n         \
           \   is_secure=False,  # HTTP\n        )\n\n        # Collect metrics into\
           \ metadata if provided\n        version_metadata = {}\n        eval_summary\
-          \ = {}\n        try:\n            # Add base model info\n            if\
-          \ base_model_name:\n                version_metadata[\"base_model\"] = base_model_name\n\
-          \n            # Add training metrics (hyperparameters)\n            if input_metrics\
-          \ and getattr(input_metrics, \"metadata\", None):\n                print(\"\
-          \\n  Training Hyperparameters:\")\n                for k, v in input_metrics.metadata.items():\n\
-          \                    if k not in (\"display_name\", \"store_session_info\"\
-          ):\n                        version_metadata[f\"training_{k}\"] = str(v)\n\
-          \                        print(f\"    - {k}: {v}\")\n\n            # Add\
-          \ evaluation metrics\n            if eval_metrics and getattr(eval_metrics,\
-          \ \"metadata\", None):\n                print(\"\\n  Evaluation Metrics:\"\
-          )\n                for k, v in eval_metrics.metadata.items():\n        \
-          \            if k not in (\"display_name\", \"store_session_info\"):\n \
-          \                       version_metadata[f\"eval_{k}\"] = str(v)\n     \
-          \                   # Extract primary accuracy metrics for summary\n   \
-          \                     if \"_acc,\" in k or \"_acc_norm,\" in k:\n      \
-          \                      if \"stderr\" not in k:\n                       \
-          \         eval_summary[k] = v\n                                print(f\"\
-          \    - {k}: {v:.4f}\" if isinstance(v, float) else f\"    - {k}: {v}\")\n\
-          \n                # Print eval config\n                eval_tasks = eval_metrics.metadata.get(\"\
-          eval_tasks\", \"\")\n                eval_duration = eval_metrics.metadata.get(\"\
-          eval_duration_seconds\", \"\")\n                if eval_tasks:\n       \
-          \             print(f\"    - Tasks: {eval_tasks}\")\n                if\
-          \ eval_duration:\n                    print(f\"    - Duration: {eval_duration}s\"\
-          )\n\n            # Add summary of best metrics\n            if eval_summary:\n\
-          \                # Find the best accuracy metric\n                best_metric\
+          \ = {}\n        try:\n            # -------------------------------------------------------------------------\n\
+          \            # PROVENANCE (logged here, passed as direct params to register_model)\n\
+          \            # -------------------------------------------------------------------------\n\
+          \            # Auto-detect namespace if not provided\n            resolved_namespace\
+          \ = source_namespace\n            if not resolved_namespace:\n         \
+          \       try:\n                    with open(\"/var/run/secrets/kubernetes.io/serviceaccount/namespace\"\
+          , \"r\") as f:\n                        resolved_namespace = f.read().strip()\n\
+          \                        print(f\"\\n  Auto-detected namespace: {resolved_namespace}\"\
+          )\n                except Exception:\n                    resolved_namespace\
+          \ = \"\"\n\n            print(\"\\n  Provenance:\")\n            print(f\"\
+          \    - Source Kind: kfp\")\n            print(f\"    - Source Class: pipelinerun\"\
+          )\n            if source_pipeline_name:\n                version_metadata[\"\
+          pipeline_name\"] = source_pipeline_name\n                print(f\"    -\
+          \ Pipeline Name: {source_pipeline_name}\")\n            if source_pipeline_run_id:\n\
+          \                print(f\"    - Run ID: {source_pipeline_run_id}\")\n  \
+          \          if source_pipeline_run_name:\n                print(f\"    -\
+          \ Run Name: {source_pipeline_run_name} (used for UI link text)\")\n    \
+          \        if resolved_namespace:\n                print(f\"    - Namespace:\
+          \ {resolved_namespace}\")\n\n            # Add base model info\n       \
+          \     if base_model_name:\n                version_metadata[\"base_model\"\
+          ] = base_model_name\n\n            # Add training metrics (hyperparameters)\n\
+          \            if input_metrics and getattr(input_metrics, \"metadata\", None):\n\
+          \                print(\"\\n  Training Hyperparameters:\")\n           \
+          \     for k, v in input_metrics.metadata.items():\n                    if\
+          \ k not in (\"display_name\", \"store_session_info\"):\n               \
+          \         version_metadata[f\"training_{k}\"] = str(v)\n               \
+          \         print(f\"    - {k}: {v}\")\n\n            # Add evaluation metrics\n\
+          \            if eval_metrics and getattr(eval_metrics, \"metadata\", None):\n\
+          \                print(\"\\n  Evaluation Metrics:\")\n                for\
+          \ k, v in eval_metrics.metadata.items():\n                    if k not in\
+          \ (\"display_name\", \"store_session_info\"):\n                        version_metadata[f\"\
+          eval_{k}\"] = str(v)\n                        # Extract primary accuracy\
+          \ metrics for summary\n                        if \"_acc,\" in k or \"_acc_norm,\"\
+          \ in k:\n                            if \"stderr\" not in k:\n         \
+          \                       eval_summary[k] = v\n                          \
+          \      print(f\"    - {k}: {v:.4f}\" if isinstance(v, float) else f\"  \
+          \  - {k}: {v}\")\n\n                # Print eval config\n              \
+          \  eval_tasks = eval_metrics.metadata.get(\"eval_tasks\", \"\")\n      \
+          \          eval_duration = eval_metrics.metadata.get(\"eval_duration_seconds\"\
+          , \"\")\n                if eval_tasks:\n                    print(f\" \
+          \   - Tasks: {eval_tasks}\")\n                if eval_duration:\n      \
+          \              print(f\"    - Duration: {eval_duration}s\")\n\n        \
+          \    # Add summary of best metrics\n            if eval_summary:\n     \
+          \           # Find the best accuracy metric\n                best_metric\
           \ = max(eval_summary.items(), key=lambda x: x[1] if isinstance(x[1], (int,\
           \ float)) else 0)\n                version_metadata[\"eval_best_metric\"\
           ] = best_metric[0]\n                version_metadata[\"eval_best_score\"\
@@ -789,19 +797,28 @@ deploymentSpec:
           \                model_format_name=model_format_name,\n                model_format_version=model_format_version,\n\
           \                author=author,\n                owner=author,\n       \
           \         description=model_description or f\"Registered via pipeline -\
-          \ {model_version}\",\n                metadata=version_metadata or None,\n\
-          \            )\n            model_id = registered_model.id\n           \
-          \ print(f\"  Registered model: {registered_model.name} (ID: {model_id})\"\
-          )\n        except StoreError as e:\n            msg = str(e)\n         \
-          \   if \"already exists\" in msg.lower():\n                print(f\"  Model\
-          \ version already exists; skipping create. Details: {msg}\")\n         \
-          \       model_id = f\"{resolved_model_name}:{model_version}\"\n        \
-          \    else:\n                raise\n\n    # Write to shared log\n    log_path\
-          \ = os.path.join(pvc_mount_path, shared_log_file)\n    with open(log_path,\
-          \ \"a\") as f:\n        f.write(f\"Model Registry: {model_name} v{model_version}\
-          \ (ID: {model_id})\\n\")\n    print(f\"\\n[Log written to {log_path}]\"\
-          )\n\n    print(\"\\n\" + \"=\" * 60)\n    print(f\"COMPLETE - Model ID:\
-          \ {model_id}\")\n    print(\"=\" * 60)\n\n    return str(model_id)\n\n"
+          \ {model_version}\",\n                # Provenance (direct params in SDK\
+          \ 0.3.4+)\n                # Note: model_source_name is the RUN NAME (displayed\
+          \ as link text in UI)\n                # The pipeline name is stored in\
+          \ metadata as model_source_run_name\n                model_source_kind=\"\
+          kfp\",\n                model_source_class=\"pipelinerun\",\n          \
+          \      model_source_name=source_pipeline_run_name or source_pipeline_name\
+          \ or None,\n                model_source_id=source_pipeline_run_id or None,\n\
+          \                model_source_group=resolved_namespace or None,\n      \
+          \          # Additional metadata (training/eval metrics, run name, etc.)\n\
+          \                metadata=version_metadata or None,\n            )\n   \
+          \         model_id = registered_model.id\n            print(f\"  Registered\
+          \ model: {registered_model.name} (ID: {model_id})\")\n        except StoreError\
+          \ as e:\n            msg = str(e)\n            if \"already exists\" in\
+          \ msg.lower():\n                print(f\"  Model version already exists;\
+          \ skipping create. Details: {msg}\")\n                model_id = f\"{resolved_model_name}:{model_version}\"\
+          \n            else:\n                raise\n\n    # Write to shared log\n\
+          \    log_path = os.path.join(pvc_mount_path, shared_log_file)\n    with\
+          \ open(log_path, \"a\") as f:\n        f.write(f\"Model Registry: {model_name}\
+          \ v{model_version} (ID: {model_id})\\n\")\n    print(f\"\\n[Log written\
+          \ to {log_path}]\")\n\n    print(\"\\n\" + \"=\" * 60)\n    print(f\"COMPLETE\
+          \ - Model ID: {model_id}\")\n    print(\"=\" * 60)\n\n    return str(model_id)\n\
+          \n"
         image: quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438
     exec-train-model:
       container:
@@ -866,78 +883,13 @@ deploymentSpec:
           \    # ------------------------------\n    training_save_samples: Optional[int]\
           \ = None,\n    training_accelerate_full_state_at_epoch: Optional[bool] =\
           \ None,\n    # KFP TaskConfig passthrough for volumes/env/resources, etc.\n\
-          \    kubernetes_config: dsl.TaskConfig = None,\n) -> str:\n    \"\"\"Perform\
-          \ model training (inline) using PVC workspace and TrainingHub runtime.\n\
-          \n    Args:\n        pvc_path: Root of the workspace PVC for this run.\n\
-          \        dataset: Input dataset artifact (preferred). If not present, this\
-          \ component\n            will attempt to load from a remote path specified\
-          \ in dataset.metadata.\n            - metadata[\"artifact_path\"]: remote\
-          \ dataset path (e.g., s3://..., https://..., or HF repo id)\n          \
-          \  - metadata[\"pvc_dir\"]: pre-staged PVC directory to use if present\n\
-          \        training_base_model: HuggingFace model ID to fine-tune (e.g., \"\
-          Qwen/Qwen2.5-1.5B-Instruct\").\n\n        training_algorithm: Training algorithm\
-          \ (\"OSFT\" | \"SFT\"). OSFT adds continual learning support.\n        training_effective_batch_size:\
-          \ Per-step batch size. Guidance:\n            - 1 GPU: 16\u201332\n    \
-          \        - 2 GPUs: 32\u201364\n            - 4 GPUs: 64\u2013128\n     \
-          \   training_max_tokens_per_gpu: Token budget per GPU for memory mgmt.\n\
-          \        training_max_seq_len: Max sequence length (typical 2048\u20138192).\n\
-          \        training_learning_rate: Learning rate (typ. 1e-6 to 1e-4; 5e-6\
-          \ is a good OSFT default).\n        training_backend: Trainer backend variant\
-          \ (e.g., \"mini-trainer\").\n        training_target_patterns: Comma-separated\
-          \ target modules/patterns (algorithm-specific).\n        training_seed:\
-          \ Random seed for reproducibility.\n        training_use_liger: Enable Liger\
-          \ kernel optimizations (image must include kernels).\n        training_use_processed_dataset:\
-          \ Whether dataset is already processed.\n        training_unmask_messages:\
-          \ Whether to unmask chat messages if applicable.\n        training_lr_scheduler:\
-          \ LR scheduler (\"cosine\" | \"linear\" | \"constant\").\n        training_lr_warmup_steps:\
-          \ LR warmup steps (0 for none).\n        training_save_samples: Number of\
-          \ samples to save during SFT (optional).\n        training_accelerate_full_state_at_epoch:\
-          \ Whether to save full Accelerate state at each epoch (optional).\n    \
-          \    training_lr_scheduler_kwargs: Comma-delimited key=value string for\
-          \ scheduler kwargs\n            (e.g., \"num_cycles=1,num_warmup_steps=100\"\
-          ).\n        training_checkpoint_at_epoch: Save a checkpoint at each epoch\
-          \ boundary.\n        training_save_final_checkpoint: Save the final model\
-          \ checkpoint.\n        training_num_epochs: Number of epochs (1 = quick\
-          \ test; 3\u20135 = better convergence).\n        training_data_output_dir:\
-          \ Optional secondary output directory on PVC.\n\n        training_envs:\
-          \ Comma-separated env overrides (\"KEY=VAL,KEY=VAL\").\n        training_resource_cpu_per_worker:\
-          \ CPU limit/request per worker (e.g., \"8\").\n        training_resource_gpu_per_worker:\
-          \ GPUs per worker (e.g., 1). Typically equals num procs.\n        training_resource_memory_per_worker:\
-          \ Memory per worker (e.g., \"32Gi\").\n        training_resource_num_procs_per_worker:\
-          \ Processes (ranks) per worker (usually equals GPUs/worker).\n        training_resource_num_workers:\
-          \ Total worker pods (1 = single-node; 2+ = multi-node).\n        training_metadata_labels:\
-          \ Comma-separated labels (\"k=v,k=v\") for pod template.\n        training_metadata_annotations:\
-          \ Comma-separated annotations (\"k=v,k=v\") for pod template.\n        kubernetes_config:\
-          \ TaskConfig passthrough (volumes, mounts, env, resources, tolerations,\
-          \ etc.).\n\n        output_model: Final model artifact copied to artifact\
-          \ store and PVC,\n            with metadata set for downstream consumers:\n\
-          \            - model_name: the fine-tuned base model id\n            - artifact_path:\
-          \ output_model.path (artifact store path)\n            - pvc_model_dir:\
-          \ \"<pvc_path>/final_model\" (PVC directory path)\n        output_metrics:\
-          \ Logged numeric metrics (floats), e.g.:\n            - num_epochs, effective_batch_size,\
-          \ learning_rate, max_seq_len\n            - max_tokens_per_gpu, unfreeze_rank_ratio\
-          \ (0 for SFT)\n\n    OSFT func_args schema (passed to the trainer):\n\n\
-          \        model_path: Path to the model to fine-tune\n\n        data_path:\
-          \ Path to the training data\n\n        ckpt_output_dir: Directory to save\
-          \ checkpoints\n\n        backend: Backend implementation to use (default:\
-          \ \"instructlab-training\")\n\n        num_epochs: Number of training epochs\n\
-          \n        effective_batch_size: Effective batch size for training\n\n  \
-          \      learning_rate: Learning rate for training\n\n        max_seq_len:\
-          \ Maximum sequence length\n\n        max_tokens_per_gpu: Maximum tokens\
-          \ per GPU in a mini-batch (hard-cap for memory to avoid OOMs). Used to automatically\
-          \ calculate mini-batch size and gradient accumulation to maintain the desired\
-          \ effective_batch_size while staying within memory limits.\n\n        data_output_dir:\
-          \ Directory to save processed data\n\n        save_samples: Number of samples\
-          \ to save after training (0 disables saving based on sample count)\n\n \
-          \       warmup_steps: Number of warmup steps\n\n        accelerate_full_state_at_epoch:\
-          \ Whether to save full state at epoch for automatic checkpoint resumption\n\
-          \n        checkpoint_at_epoch: Whether to checkpoint at each epoch\n\n \
-          \   Returns:\n        Status message string.\n    \"\"\"\n    import os,\
-          \ sys, json, time, logging, re, subprocess, shutil\n    from typing import\
-          \ Dict, List, Tuple, Optional as _Optional\n\n    # ------------------------------\n\
-          \    # Logging configuration\n    # ------------------------------\n   \
-          \ def _setup_logger() -> logging.Logger:\n        \"\"\"Configure and return\
-          \ a logger for this component.\"\"\"\n        _logger = logging.getLogger(\"\
+          \    kubernetes_config: dsl.TaskConfig = None,\n) -> str:\n    \"\"\"Train\
+          \ model using TrainingHub (OSFT/SFT). Outputs model artifact and metrics.\"\
+          \"\"\n    import os, sys, json, time, logging, re, subprocess, shutil\n\
+          \    from typing import Dict, List, Tuple, Optional as _Optional\n\n   \
+          \ # ------------------------------\n    # Logging configuration\n    # ------------------------------\n\
+          \    def _setup_logger() -> logging.Logger:\n        \"\"\"Configure and\
+          \ return a logger for this component.\"\"\"\n        _logger = logging.getLogger(\"\
           train_model\")\n        _logger.setLevel(logging.INFO)\n        if not _logger.handlers:\n\
           \            _ch = logging.StreamHandler(sys.stdout)\n            _ch.setLevel(logging.INFO)\n\
           \            _ch.setFormatter(logging.Formatter(\"%(asctime)s - %(levelname)s\
@@ -1333,8 +1285,41 @@ deploymentSpec:
           \ Exception as e:\n            logger.warning(f\"Training job monitoring\
           \ failed: {e}\")\n    except Exception as e:\n        logger.error(f\"TrainingHubTrainer\
           \ execution failed: {e}\")\n        raise\n\n    # ------------------------------\n\
-          \    # Metrics (basic hyperparameters)\n    # ------------------------------\n\
-          \    def _log_basic_metrics() -> None:\n        output_metrics.log_metric(\"\
+          \    # Metrics (hyperparameters + training metrics from trainer output)\n\
+          \    # ------------------------------\n    def _get_training_metrics(search_root:\
+          \ str, algo: str = \"osft\") -> Dict[str, float]:\n        \"\"\"Find and\
+          \ parse TrainingHub metrics file (OSFT/SFT).\"\"\"\n        import math\n\
+          \        # File patterns: OSFT=training_metrics_0.jsonl, SFT=training_params_and_metrics_global0.jsonl\n\
+          \        patterns = [\"training_metrics_0.jsonl\", \"training_params_and_metrics_global0.jsonl\"\
+          ]\n        if algo.lower() == \"sft\":\n            patterns = patterns[::-1]\n\
+          \n        mfile = None\n        for root, _, files in os.walk(search_root):\n\
+          \            for p in patterns:\n                if p in files:\n      \
+          \              mfile = os.path.join(root, p)\n                    break\n\
+          \            if mfile:\n                break\n\n        if not mfile or\
+          \ not os.path.exists(mfile):\n            logger.warning(f\"No metrics file\
+          \ in {search_root}\")\n            return {}\n\n        logger.info(f\"\
+          Reading metrics from: {mfile}\")\n        metrics, losses = {}, []\n   \
+          \     try:\n            with open(mfile) as f:\n                for line\
+          \ in f:\n                    if line.strip():\n                        try:\n\
+          \                            e = json.loads(line)\n                    \
+          \        # Map fields: loss/avg_loss->loss, lr->learning_rate, gradnorm/grad_norm->grad_norm\n\
+          \                            for src, dst in [('loss','loss'),('avg_loss','loss'),('lr','learning_rate'),\n\
+          \                                             ('grad_norm','grad_norm'),('gradnorm','grad_norm'),\n\
+          \                                             ('val_loss','eval_loss'),('epoch','epoch'),('step','step')]:\n\
+          \                                if src in e and dst not in metrics:\n \
+          \                                   try: metrics[dst] = float(e[src])\n\
+          \                                    except: pass\n                    \
+          \        lv = e.get('loss') or e.get('avg_loss')\n                     \
+          \       if lv: \n                                try: losses.append(float(lv))\n\
+          \                                except: pass\n                        except:\
+          \ pass\n            if losses:\n                metrics['final_loss'] =\
+          \ losses[-1]\n                metrics['min_loss'] = min(losses)\n      \
+          \          metrics['final_perplexity'] = math.exp(min(losses[-1], 10))\n\
+          \            logger.info(f\"Extracted {len(metrics)} metrics\")\n      \
+          \  except Exception as ex:\n            logger.warning(f\"Failed to parse\
+          \ metrics: {ex}\")\n        return metrics\n\n    def _log_all_metrics()\
+          \ -> None:\n        \"\"\"Log hyperparameters and training metrics.\"\"\"\
+          \n        # 1. Log hyperparameters\n        output_metrics.log_metric(\"\
           num_epochs\", float(params.get(\"num_epochs\") or 1))\n        output_metrics.log_metric(\"\
           effective_batch_size\", float(params.get(\"effective_batch_size\") or 128))\n\
           \        output_metrics.log_metric(\"learning_rate\", float(params.get(\"\
@@ -1342,7 +1327,11 @@ deploymentSpec:
           , float(params.get(\"max_seq_len\") or 8192))\n        output_metrics.log_metric(\"\
           max_tokens_per_gpu\", float(params.get(\"max_tokens_per_gpu\") or 0))\n\
           \        output_metrics.log_metric(\"unfreeze_rank_ratio\", float(params.get(\"\
-          unfreeze_rank_ratio\") or 0))\n\n    _log_basic_metrics()\n\n    # ------------------------------\n\
+          unfreeze_rank_ratio\") or 0))\n\n        # 2. Find and parse training metrics\
+          \ file\n        algo = (training_algorithm or \"osft\").strip().lower()\n\
+          \        training_metrics = _get_training_metrics(checkpoints_dir, algo)\n\
+          \        for k, v in training_metrics.items():\n            output_metrics.log_metric(f\"\
+          training_{k}\", v)\n\n    _log_all_metrics()\n\n    # ------------------------------\n\
           \    # Export most recent checkpoint as model artifact (artifact store)\
           \ and PVC\n    # ------------------------------\n    def _persist_and_annotate()\
           \ -> None:\n        \"\"\"Copy latest checkpoint to PVC and artifact store,\
@@ -1380,8 +1369,8 @@ deploymentSpec:
         - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
           \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
           \ python3 -m pip install --quiet --no-warn-script-location 'lm-eval[vllm]'\
-          \ 'unitxt' 'sacrebleu' 'datasets' 'accelerate' 'torch' 'transformers'  &&\
-          \  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
+          \ 'unitxt' 'sacrebleu' 'rouge-score' 'datasets' 'accelerate' 'torch' 'transformers'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.15.2'\
           \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
           $0\" \"$@\"\n"
         - sh
@@ -1398,122 +1387,423 @@ deploymentSpec:
           \ *\n\ndef universal_llm_evaluator(\n    output_metrics: dsl.Output[dsl.Metrics],\n\
           \    output_results: dsl.Output[dsl.Artifact],\n    output_samples: dsl.Output[dsl.Artifact],\n\
           \    # --- Generic Inputs ---\n    task_names: list,\n    model_path: str\
-          \ = None, # Optional: Use for HF Hub models (e.g. \"ibm/granite-7b\")\n\
-          \    model_artifact: dsl.Input[dsl.Model] = None, # Optional: Use for upstream\
-          \ pipeline models\n    eval_dataset: dsl.Input[dsl.Dataset] = None, # Optional:\
-          \ Eval dataset from pipeline (for tracking)\n    model_args: dict = {},\n\
-          \    gen_kwargs: dict = {},\n    batch_size: str = \"auto\",\n    limit:\
-          \ int = -1,\n    log_samples: bool = True,\n    verbosity: str = \"INFO\"\
-          ,\n):\n    \"\"\"\n    A Universal LLM Evaluator component using EleutherAI's\
-          \ lm-evaluation-harness.\n\n    Args:\n        model_path: String path or\
-          \ HF ID. Used if model_artifact is None.\n        model_artifact: KFP Model\
-          \ artifact from a previous pipeline step.\n        eval_dataset: Optional\
-          \ eval dataset artifact for tracking/future custom eval.\n        task_names:\
-          \ List of task names (e.g. [\"mmlu\", \"gsm8k\"]).\n        model_args:\
+          \ = None,  # Optional: Use for HF Hub models (e.g. \"ibm/granite-7b\")\n\
+          \    model_artifact: dsl.Input[dsl.Model] = None,  # Optional: Use for upstream\
+          \ pipeline models\n    eval_dataset: dsl.Input[dsl.Dataset] = None,  # Optional:\
+          \ Eval dataset for custom holdout evaluation\n    # ^ REQUIRED FORMAT: JSONL\
+          \ with chat messages structure (SFT/OSFT compatible):\n    #   WITH SYSTEM:\
+          \    {\"messages\": [{\"role\": \"system\", \"content\": \"...\"}, {\"role\"\
+          : \"user\", \"content\": \"...\"}, {\"role\": \"assistant\", \"content\"\
+          : \"...\"}]}\n    #   WITHOUT SYSTEM: {\"messages\": [{\"role\": \"user\"\
+          , \"content\": \"...\"}, {\"role\": \"assistant\", \"content\": \"...\"\
+          }]}\n    #   User message = prompt, Assistant message = expected response\n\
+          \    #   If format is invalid, custom evaluation will be skipped with a\
+          \ warning.\n    model_args: dict = {},\n    gen_kwargs: dict = {},\n   \
+          \ batch_size: str = \"auto\",\n    limit: int = -1,\n    log_samples: bool\
+          \ = True,\n    verbosity: str = \"INFO\",\n    # --- Custom Eval Options\
+          \ ---\n    custom_eval_max_tokens: int = 256,\n    # ^ Maximum tokens to\
+          \ generate for custom eval responses\n):\n    \"\"\"\n    A Universal LLM\
+          \ Evaluator component using EleutherAI's lm-evaluation-harness.\n\n    Supports\
+          \ two types of evaluation:\n    1. Benchmark evaluation: Standard lm-eval\
+          \ tasks (arc_easy, mmlu, gsm8k, etc.)\n    2. Custom holdout evaluation:\
+          \ When eval_dataset is provided, evaluates on your held-out data\n\n   \
+          \ CUSTOM EVAL DATASET FORMAT (SFT/OSFT Compatible):\n    ------------------------------------------------\n\
+          \    The eval_dataset must be a JSONL file with chat message format.\n\n\
+          \    Two formats are supported:\n\n    WITH SYSTEM MESSAGE:\n        {\"\
+          messages\": [{\"role\": \"system\", \"content\": \"You are a helpful assistant.\"\
+          }, \n                      {\"role\": \"user\", \"content\": \"Question\
+          \ or prompt\"}, \n                      {\"role\": \"assistant\", \"content\"\
+          : \"Expected response\"}]}\n\n    WITHOUT SYSTEM MESSAGE:\n        {\"messages\"\
+          : [{\"role\": \"user\", \"content\": \"Question or prompt\"}, \n       \
+          \               {\"role\": \"assistant\", \"content\": \"Expected response\"\
+          }]}\n\n    Requirements:\n    - Each line must be valid JSON with a \"messages\"\
+          \ array\n    - Must contain at least one \"user\" message (used as the prompt)\n\
+          \    - Must contain at least one \"assistant\" message (used as expected\
+          \ response)\n    - System message is optional and will be included in the\
+          \ prompt if present\n    - If format is invalid, custom evaluation is SKIPPED\
+          \ with a warning\n\n    Metrics produced for custom eval:\n    - holdout_exact_match:\
+          \ Exact string match (usually 0 for conversational data)\n    - holdout_contains_match:\
+          \ Whether response contains key part of target\n    - holdout_bleu: BLEU\
+          \ score (good for translation/short responses)\n    - holdout_rouge1: ROUGE-1\
+          \ F1 (unigram overlap - good for content coverage)\n    - holdout_rouge2:\
+          \ ROUGE-2 F1 (bigram overlap - good for fluency)\n    - holdout_rougeL:\
+          \ ROUGE-L F1 (longest common subsequence - good for structure)\n    - holdout_f1_overlap:\
+          \ Word overlap F1 score (simple but robust)\n    - holdout_perplexity: Model\
+          \ perplexity on target (lower is better)\n    - holdout_loss: Negative log-likelihood\
+          \ loss on target (lower is better)\n\n    Args:\n        model_path: String\
+          \ path or HF ID. Used if model_artifact is None.\n        model_artifact:\
+          \ KFP Model artifact from a previous pipeline step.\n        eval_dataset:\
+          \ JSONL dataset in chat format for custom holdout evaluation.\n        task_names:\
+          \ List of benchmark task names (e.g. [\"mmlu\", \"gsm8k\"]).\n        model_args:\
           \ Dictionary for model initialization (e.g. {\"dtype\": \"float16\"}).\n\
-          \        ...\n    \"\"\"\n    import logging\n    import json\n    import\
-          \ os\n    import time\n    import torch\n\n    # Delayed imports\n    from\
-          \ lm_eval import evaluator\n\n    # --- 1. Setup Logging ---\n    logging.basicConfig(\n\
-          \        level=getattr(logging, verbosity.upper()),\n        format=\"%(asctime)s\
-          \ - %(name)s - %(levelname)s - %(message)s\",\n    )\n    logger = logging.getLogger(\"\
-          UniversalEval\")\n\n    if not torch.cuda.is_available():\n        logger.warning(\"\
-          CUDA is not available! Evaluation will be extremely slow.\")\n\n    # ---\
-          \ 2. Resolve Model Path ---\n    # Logic: Prefer PVC path from artifact\
-          \ metadata (shared PVC), then artifact path, then string path.\n    final_model_path\
-          \ = None\n    if model_artifact:\n        # Check if training component\
-          \ set pvc_model_dir in metadata (more reliable than S3 artifact path)\n\
-          \        meta = getattr(model_artifact, \"metadata\", {}) or {}\n      \
-          \  pvc_model_dir = meta.get(\"pvc_model_dir\")\n        if pvc_model_dir\
-          \ and os.path.isdir(pvc_model_dir):\n            logger.info(f\"Using model\
-          \ from PVC path (via metadata): {pvc_model_dir}\")\n            final_model_path\
-          \ = pvc_model_dir\n        elif os.path.isdir(model_artifact.path):\n  \
-          \          logger.info(f\"Using model from artifact path: {model_artifact.path}\"\
+          \        custom_eval_max_tokens: Max tokens for generation in custom eval\
+          \ (default: 256).\n    \"\"\"\n    import logging\n    import json\n   \
+          \ import os\n    import time\n    import random\n    import torch\n\n  \
+          \  # Delayed imports for lm-eval\n    from lm_eval import tasks\n    from\
+          \ lm_eval.api.registry import get_model\n    from lm_eval.evaluator import\
+          \ evaluate\n    from lm_eval.tasks import get_task_dict\n    from lm_eval.api.instance\
+          \ import Instance\n    from lm_eval.api.task import TaskConfig\n    from\
+          \ lm_eval.api.metrics import mean\n\n    # --- 1. Setup Logging ---\n  \
+          \  logging.basicConfig(\n        level=getattr(logging, verbosity.upper()),\n\
+          \        format=\"%(asctime)s - %(name)s - %(levelname)s - %(message)s\"\
+          ,\n    )\n    logger = logging.getLogger(\"UniversalEval\")\n\n    if not\
+          \ torch.cuda.is_available():\n        logger.warning(\"CUDA is not available!\
+          \ Evaluation will be extremely slow.\")\n\n    # =========================================================================\n\
+          \    # Dataset Format Validation\n    # =========================================================================\n\
+          \    def extract_chat_parts(messages: list) -> tuple:\n        \"\"\"\n\
+          \        Extract system, user, and assistant content from messages array.\n\
+          \n        Supports two formats:\n        1. [system, user, assistant] -\
+          \ with system message\n        2. [user, assistant] - without system message\n\
+          \n        Returns:\n            (system_content, user_content, assistant_content)\
+          \ - system may be None\n        \"\"\"\n        system_content = None\n\
+          \        user_content = None\n        assistant_content = None\n\n     \
+          \   for msg in messages:\n            role = msg.get(\"role\", \"\")\n \
+          \           content = msg.get(\"content\", \"\")\n\n            if role\
+          \ == \"system\" and system_content is None:\n                system_content\
+          \ = content\n            elif role == \"user\" and user_content is None:\n\
+          \                user_content = content\n            elif role == \"assistant\"\
+          \ and assistant_content is None:\n                assistant_content = content\n\
+          \n        return system_content, user_content, assistant_content\n\n   \
+          \ def validate_chat_format(data: list, logger) -> tuple:\n        \"\"\"\
+          \n        Validate that the dataset is in the expected chat format.\n\n\
+          \        Supported formats:\n        - {\"messages\": [{\"role\": \"system\"\
+          , ...}, {\"role\": \"user\", ...}, {\"role\": \"assistant\", ...}]}\n  \
+          \      - {\"messages\": [{\"role\": \"user\", ...}, {\"role\": \"assistant\"\
+          , ...}]}\n\n        Returns:\n            (is_valid: bool, valid_count:\
+          \ int, error_message: str or None)\n        \"\"\"\n        if not data:\n\
+          \            return False, 0, \"Dataset is empty\"\n\n        valid_count\
+          \ = 0\n        errors = []\n\n        for i, doc in enumerate(data[:min(10,\
+          \ len(data))]):  # Check first 10 samples\n            # Check for messages\
+          \ array\n            if \"messages\" not in doc:\n                errors.append(f\"\
+          Line {i+1}: Missing 'messages' field\")\n                continue\n\n  \
+          \          messages = doc[\"messages\"]\n            if not isinstance(messages,\
+          \ list):\n                errors.append(f\"Line {i+1}: 'messages' is not\
+          \ an array\")\n                continue\n\n            if len(messages)\
+          \ < 2:\n                errors.append(f\"Line {i+1}: 'messages' must have\
+          \ at least 2 messages (user + assistant)\")\n                continue\n\n\
+          \            # Extract parts using flexible parser\n            system_content,\
+          \ user_content, assistant_content = extract_chat_parts(messages)\n\n   \
+          \         # Must have user message\n            if not user_content:\n \
+          \               errors.append(f\"Line {i+1}: No message with role='user'\
+          \ found\")\n                continue\n\n            # Must have assistant\
+          \ message\n            if not assistant_content:\n                errors.append(f\"\
+          Line {i+1}: No message with role='assistant' found\")\n                continue\n\
+          \n            valid_count += 1\n\n        if valid_count == 0:\n       \
+          \     error_summary = \"\\n\".join(errors[:5])  # Show first 5 errors\n\
+          \            return False, 0, f\"No valid examples found. Errors:\\n{error_summary}\"\
+          \n\n        if errors:\n            logger.warning(f\"Some examples have\
+          \ format issues ({len(errors)} warnings in first 10 samples)\")\n      \
+          \      for err in errors[:3]:\n                logger.warning(f\"  - {err}\"\
+          )\n\n        return True, valid_count, None\n\n    # =========================================================================\n\
+          \    # Custom Chat Holdout Task (follows sample.py pattern)\n    # =========================================================================\n\
+          \    class ChatHoldoutTask(tasks.Task):\n        \"\"\"\n        A custom\
+          \ lm-eval task for evaluating on chat-format holdout data.\n        Uses\
+          \ generate_until and evaluates with exact_match metric.\n        \"\"\"\n\
+          \n        VERSION = 0\n\n        def __init__(self, dataset_path: str, task_name:\
+          \ str = \"custom_holdout_eval\",\n                     max_gen_toks: int\
+          \ = 256, log_prompts: bool = False, prompts_log: list = None):\n       \
+          \     self.dataset_path = dataset_path\n            self.task_name = task_name\n\
+          \            self.max_gen_toks = max_gen_toks\n            self.log_prompts\
+          \ = log_prompts\n            self.prompts_log = [] if prompts_log is None\
+          \ else prompts_log\n\n            config = TaskConfig(task=task_name, dataset_path=dataset_path)\n\
+          \            super().__init__(config=config)\n            self.config.task\
+          \ = task_name\n            self.fewshot_rnd = random.Random()\n\n      \
+          \  def download(self, data_dir=None, cache_dir=None, download_mode=None,\
+          \ **kwargs) -> None:\n            \"\"\"Load the chat JSONL dataset.\"\"\
+          \"\n            # Load JSONL file directly\n            data = []\n    \
+          \        with open(self.dataset_path, 'r') as f:\n                for line\
+          \ in f:\n                    line = line.strip()\n                    if\
+          \ line:\n                        data.append(json.loads(line))\n\n     \
+          \       # Create a simple dict-like dataset\n            self.dataset =\
+          \ {\"test\": data}\n            logger.info(f\"Loaded {len(data)} examples\
+          \ from {self.dataset_path}\")\n\n        def has_test_docs(self):\n    \
+          \        return \"test\" in self.dataset\n\n        def has_validation_docs(self):\n\
+          \            return False\n\n        def has_training_docs(self):\n    \
+          \        return False\n\n        def test_docs(self):\n            return\
+          \ self.dataset[\"test\"]\n\n        def doc_to_text(self, doc):\n      \
+          \      \"\"\"\n            Extract prompt from messages with chat template.\n\
+          \n            Supports:\n            - [system, user, assistant] format\n\
+          \            - [user, assistant] format (no system)\n\n            Applies\
+          \ Qwen/ChatML-style formatting.\n            \"\"\"\n            messages\
+          \ = doc.get(\"messages\", [])\n            system_content, user_content,\
+          \ _ = extract_chat_parts(messages)\n\n            if not user_content:\n\
+          \                return \"\"\n\n            # Build prompt with Qwen/ChatML-style\
+          \ chat template\n            prompt_parts = []\n\n            # Include\
+          \ system message if present\n            if system_content:\n          \
+          \      prompt_parts.append(f\"<|im_start|>system\\n{system_content}<|im_end|>\"\
+          )\n\n            # Add user message and start assistant turn\n         \
+          \   prompt_parts.append(f\"<|im_start|>user\\n{user_content}<|im_end|>\"\
+          )\n            prompt_parts.append(\"<|im_start|>assistant\\n\")\n\n   \
+          \         return \"\\n\".join(prompt_parts)\n\n        def doc_to_target(self,\
+          \ doc):\n            \"\"\"Extract assistant message as target (expected\
+          \ response).\"\"\"\n            messages = doc.get(\"messages\", [])\n \
+          \           _, _, assistant_content = extract_chat_parts(messages)\n   \
+          \         return assistant_content or \"\"\n\n        def construct_requests(self,\
+          \ doc, ctx, **kwargs):\n            \"\"\"Create generation and loglikelihood\
+          \ requests for metrics + perplexity.\"\"\"\n            kwargs.pop(\"apply_chat_template\"\
+          , None)\n            kwargs.pop(\"chat_template\", None)\n            target\
+          \ = self.doc_to_target(doc)\n            return [\n                # idx=0:\
+          \ generation for BLEU/ROUGE/etc\n                Instance(\n           \
+          \         request_type=\"generate_until\",\n                    doc=doc,\n\
+          \                    arguments=(ctx, {\"until\": [\"<|im_end|>\", \"<|endoftext|>\"\
+          , \"</s>\", \"<|end|>\", \"\\n\\nUser:\", \"\\n\\nHuman:\"],\n         \
+          \                            \"max_gen_toks\": self.max_gen_toks}),\n  \
+          \                  idx=0,\n                    **kwargs,\n             \
+          \   ),\n                # idx=1: loglikelihood for perplexity/loss\n   \
+          \             Instance(\n                    request_type=\"loglikelihood\"\
+          ,\n                    doc=doc,\n                    arguments=(ctx, target),\n\
+          \                    idx=1,\n                    **kwargs,\n           \
+          \     ),\n            ]\n\n        def process_results(self, doc, results):\n\
+          \            \"\"\"Calculate metrics between prediction and target, plus\
+          \ perplexity.\"\"\"\n            import sacrebleu\n            import math\n\
+          \            from rouge_score import rouge_scorer\n\n            # results[0]\
+          \ = generated text, results[1] = (loglikelihood, is_greedy)\n          \
+          \  generated_text = results[0]\n            loglik_result = results[1]\n\
+          \n            prediction = generated_text.strip()\n            target =\
+          \ self.doc_to_target(doc).strip()\n\n            # Calculate perplexity\
+          \ from loglikelihood\n            # loglik_result is (logprob, is_greedy)\
+          \ tuple\n            try:\n                logprob = loglik_result[0] if\
+          \ isinstance(loglik_result, tuple) else loglik_result\n                #\
+          \ Perplexity = exp(-logprob / num_tokens), but we normalize by target length\n\
+          \                num_tokens = max(len(target.split()), 1)\n            \
+          \    perplexity = math.exp(-logprob / num_tokens) if logprob < 0 else math.exp(-logprob)\n\
+          \                # Cap perplexity to avoid inf\n                perplexity\
+          \ = min(perplexity, 10000.0)\n                # Negative log likelihood\
+          \ (loss)\n                nll = -logprob / num_tokens if logprob < 0 else\
+          \ -logprob\n            except Exception:\n                perplexity =\
+          \ 10000.0\n                nll = 10.0\n\n            # Log prompt/response\
+          \ if enabled\n            if self.log_prompts:\n                try:\n \
+          \                   self.prompts_log.append({\n                        \"\
+          prompt\": self.doc_to_text(doc),\n                        \"target\": target,\n\
+          \                        \"prediction\": prediction,\n                 \
+          \   })\n                except Exception:\n                    pass\n\n\
+          \            # Calculate exact match (case-insensitive) - mainly for short-answer\
+          \ tasks\n            exact_match = 1.0 if prediction.lower() == target.lower()\
+          \ else 0.0\n\n            # Partial match (prediction contains key part\
+          \ of target)\n            # More lenient: check if first 50 chars of target\
+          \ appear in prediction\n            target_start = target.lower()[:50] if\
+          \ len(target) > 50 else target.lower()\n            contains_match = 1.0\
+          \ if target_start in prediction.lower() else 0.0\n\n            # BLEU score\
+          \ - better for conversational/generative tasks\n            try:\n     \
+          \           bleu = sacrebleu.sentence_bleu(prediction, [target]).score /\
+          \ 100.0  # Normalize to 0-1\n            except Exception:\n           \
+          \     bleu = 0.0\n\n            # ROUGE scores - good for summarization\
+          \ and longer text generation\n            try:\n                scorer =\
+          \ rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)\n\
+          \                rouge_scores = scorer.score(target, prediction)\n     \
+          \           rouge1 = rouge_scores['rouge1'].fmeasure\n                rouge2\
+          \ = rouge_scores['rouge2'].fmeasure\n                rougeL = rouge_scores['rougeL'].fmeasure\n\
+          \            except Exception:\n                rouge1 = 0.0\n         \
+          \       rouge2 = 0.0\n                rougeL = 0.0\n\n            # Simple\
+          \ word overlap (F1-style) - robust for chat\n            pred_words = set(prediction.lower().split())\n\
+          \            target_words = set(target.lower().split())\n            if\
+          \ pred_words and target_words:\n                overlap = len(pred_words\
+          \ & target_words)\n                precision = overlap / len(pred_words)\
+          \ if pred_words else 0\n                recall = overlap / len(target_words)\
+          \ if target_words else 0\n                f1_overlap = 2 * precision * recall\
+          \ / (precision + recall) if (precision + recall) > 0 else 0\n          \
+          \  else:\n                f1_overlap = 0.0\n\n            return {\n   \
+          \             \"exact_match\": exact_match,\n                \"contains_match\"\
+          : contains_match,\n                \"bleu\": bleu,\n                \"rouge1\"\
+          : rouge1,\n                \"rouge2\": rouge2,\n                \"rougeL\"\
+          : rougeL,\n                \"f1_overlap\": f1_overlap,\n               \
+          \ \"perplexity\": perplexity,\n                \"loss\": nll,\n        \
+          \    }\n\n        def aggregation(self):\n            return {\n       \
+          \         \"exact_match\": mean,\n                \"contains_match\": mean,\n\
+          \                \"bleu\": mean,\n                \"rouge1\": mean,\n  \
+          \              \"rouge2\": mean,\n                \"rougeL\": mean,\n  \
+          \              \"f1_overlap\": mean,\n                \"perplexity\": mean,\n\
+          \                \"loss\": mean,\n            }\n\n        def should_decontaminate(self):\n\
+          \            return False\n\n        def doc_to_prefix(self, doc):\n   \
+          \         return \"\"\n\n        def higher_is_better(self):\n         \
+          \   return {\n                \"exact_match\": True,\n                \"\
+          contains_match\": True,\n                \"bleu\": True,\n             \
+          \   \"rouge1\": True,\n                \"rouge2\": True,\n             \
+          \   \"rougeL\": True,\n                \"f1_overlap\": True,\n         \
+          \       \"perplexity\": False,  # Lower is better\n                \"loss\"\
+          : False,  # Lower is better\n            }\n\n    # =========================================================================\n\
+          \    # Main Evaluation Logic\n    # =========================================================================\n\
+          \n    # --- 2. Resolve Model Path ---\n    final_model_path = None\n   \
+          \ if model_artifact:\n        meta = getattr(model_artifact, \"metadata\"\
+          , {}) or {}\n        pvc_model_dir = meta.get(\"pvc_model_dir\")\n     \
+          \   if pvc_model_dir and os.path.isdir(pvc_model_dir):\n            logger.info(f\"\
+          Using model from PVC path (via metadata): {pvc_model_dir}\")\n         \
+          \   final_model_path = pvc_model_dir\n        elif os.path.isdir(model_artifact.path):\n\
+          \            logger.info(f\"Using model from artifact path: {model_artifact.path}\"\
           )\n            final_model_path = model_artifact.path\n        else:\n \
           \           logger.warning(f\"Artifact path not found: {model_artifact.path},\
           \ checking metadata...\")\n            if pvc_model_dir:\n             \
           \   logger.info(f\"Falling back to PVC path from metadata: {pvc_model_dir}\"\
           )\n                final_model_path = pvc_model_dir\n\n    if not final_model_path\
           \ and model_path:\n        logger.info(f\"Using model from string path/ID:\
-          \ {model_path}\")\n        final_model_path = model_path\n\n    # --- Log\
-          \ eval dataset info (for tracking/lineage) ---\n    eval_dataset_info =\
-          \ {}\n    if eval_dataset:\n        eval_meta = getattr(eval_dataset, \"\
-          metadata\", {}) or {}\n        eval_dataset_info = {\n            \"num_examples\"\
-          : eval_meta.get(\"num_examples\", \"unknown\"),\n            \"split\":\
-          \ eval_meta.get(\"split\", \"eval\"),\n            \"pvc_path\": eval_meta.get(\"\
-          pvc_path\", eval_dataset.path),\n        }\n        logger.info(f\"Eval\
-          \ dataset: {eval_dataset_info['num_examples']} examples from {eval_dataset_info['split']}\
-          \ split\")\n        logger.info(f\"Eval dataset path: {eval_dataset_info['pvc_path']}\"\
-          )\n\n    if not final_model_path:\n        raise ValueError(\"No model provided!\
-          \ You must pass either 'model_path' (string) or 'model_artifact' (input).\"\
-          )\n\n    # Verify model directory has config.json (required by vLLM)\n \
-          \   config_path = os.path.join(final_model_path, \"config.json\")\n    if\
-          \ not os.path.exists(config_path):\n        logger.error(f\"Model directory\
-          \ missing config.json: {final_model_path}\")\n        logger.error(f\"Directory\
-          \ contents: {os.listdir(final_model_path) if os.path.isdir(final_model_path)\
+          \ {model_path}\")\n        final_model_path = model_path\n\n    if not final_model_path:\n\
+          \        raise ValueError(\"No model provided! You must pass either 'model_path'\
+          \ (string) or 'model_artifact' (input).\")\n\n    # Verify model directory\
+          \ has config.json (required by vLLM)\n    config_path = os.path.join(final_model_path,\
+          \ \"config.json\")\n    if not os.path.exists(config_path):\n        logger.error(f\"\
+          Model directory missing config.json: {final_model_path}\")\n        logger.error(f\"\
+          Directory contents: {os.listdir(final_model_path) if os.path.isdir(final_model_path)\
           \ else 'NOT A DIRECTORY'}\")\n        raise ValueError(f\"Invalid model\
           \ directory - no config.json found at {final_model_path}\")\n\n    # ---\
-          \ 3. Input Sanitization ---\n    def parse_input(val, default):\n      \
-          \  if val is None: return default\n        if isinstance(val, str):\n  \
-          \          try: return json.loads(val)\n            except: return val\n\
-          \        return val\n\n    tasks_list = parse_input(task_names, [])\n  \
-          \  m_args = parse_input(model_args, {})\n    g_kwargs = parse_input(gen_kwargs,\
-          \ {})\n    limit_val = None if limit == -1 else limit\n\n    # --- 4. Construct\
-          \ Model Arguments ---\n    final_model_args = {\n        \"pretrained\"\
-          : final_model_path,  # The resolved path is used here\n        \"trust_remote_code\"\
-          : True,\n        \"gpu_memory_utilization\": 0.8,\n        \"dtype\": \"\
-          auto\"\n    }\n    final_model_args.update(m_args)\n\n    # --- 5. Execution\
-          \ ---\n    logger.info(\"Starting evaluation...\")\n    start_time = time.time()\n\
-          \n    try:\n        results = evaluator.simple_evaluate(\n            model=\"\
-          vllm\",\n            model_args=final_model_args,\n            tasks=tasks_list,\n\
-          \            batch_size=batch_size,\n            limit=limit_val,\n    \
-          \        log_samples=log_samples,\n            gen_kwargs=g_kwargs,\n  \
-          \          verbosity=verbosity\n        )\n    except Exception as e:\n\
-          \        logger.error(f\"Evaluation failed: {str(e)}\")\n        raise RuntimeError(f\"\
-          Fatal error in evaluation: {e}\")\n\n    # --- 6. Output Processing ---\n\
-          \    duration = time.time() - start_time\n    logger.info(f\"Evaluation\
-          \ completed in {duration:.2f}s\")\n\n    def clean_for_json(obj):\n    \
-          \    if isinstance(obj, (int, float, str, bool, type(None))): return obj\n\
-          \        elif hasattr(obj, \"item\"): return obj.item()\n        elif isinstance(obj,\
-          \ dict): return {k: clean_for_json(v) for k, v in obj.items()}\n       \
-          \ elif isinstance(obj, list): return [clean_for_json(item) for item in obj]\n\
-          \        return str(obj)\n\n    clean_results = clean_for_json(results)\n\
-          \n    # --- Log Evaluation Metadata (useful for data scientists) ---\n \
-          \   # Evaluation configuration\n    output_metrics.log_metric(\"eval_duration_seconds\"\
-          , round(duration, 2))\n    output_metrics.log_metric(\"eval_tasks_count\"\
-          , len(tasks_list))\n\n    # Add task list as metadata (will be stringified)\n\
-          \    try:\n        output_metrics.metadata[\"eval_tasks\"] = \",\".join(tasks_list)\n\
-          \        output_metrics.metadata[\"eval_model_path\"] = final_model_path\n\
-          \        output_metrics.metadata[\"eval_batch_size\"] = str(batch_size)\n\
-          \        output_metrics.metadata[\"eval_limit\"] = str(limit_val) if limit_val\
-          \ else \"all\"\n        # Add eval dataset info if available\n        if\
-          \ eval_dataset_info:\n            output_metrics.metadata[\"eval_dataset_examples\"\
-          ] = str(eval_dataset_info.get(\"num_examples\", \"\"))\n            output_metrics.metadata[\"\
-          eval_dataset_path\"] = eval_dataset_info.get(\"pvc_path\", \"\")\n    except\
-          \ Exception as e:\n        logger.warning(f\"Could not set metadata: {e}\"\
-          )\n\n    # Extract n-shot and version info if available\n    if \"n-shot\"\
-          \ in clean_results:\n        for task_name, n_shot in clean_results.get(\"\
-          n-shot\", {}).items():\n            safe_key = f\"{task_name}_n_shot\".replace(\"\
-          \ \", \"_\").replace(\"/\", \"_\")\n            output_metrics.log_metric(safe_key,\
-          \ n_shot)\n\n    # Log number of samples evaluated per task (from configs)\n\
-          \    if \"configs\" in clean_results:\n        for task_name, config in\
-          \ clean_results.get(\"configs\", {}).items():\n            if isinstance(config,\
-          \ dict):\n                num_fewshot = config.get(\"num_fewshot\", 0)\n\
-          \                if num_fewshot is not None:\n                    safe_key\
-          \ = f\"{task_name}_num_fewshot\".replace(\" \", \"_\").replace(\"/\", \"\
-          _\")\n                    output_metrics.log_metric(safe_key, num_fewshot)\n\
-          \n    # Save Task Metrics (accuracy, stderr, etc.)\n    if \"results\" in\
-          \ clean_results:\n        for task_name, metrics in clean_results[\"results\"\
-          ].items():\n            display_name = metrics.get(\"alias\", task_name)\n\
-          \            for key, value in metrics.items():\n                if isinstance(value,\
+          \ 3. Prepare eval dataset info and custom task ---\n    eval_dataset_info\
+          \ = {}\n    eval_jsonl_path = None\n    custom_task = None\n    prompt_response_log\
+          \ = []\n\n    if eval_dataset:\n        eval_meta = getattr(eval_dataset,\
+          \ \"metadata\", {}) or {}\n        eval_dataset_info = {\n            \"\
+          num_examples\": eval_meta.get(\"num_examples\", \"unknown\"),\n        \
+          \    \"split\": eval_meta.get(\"split\", \"eval\"),\n            \"pvc_path\"\
+          : eval_meta.get(\"pvc_path\", eval_dataset.path),\n        }\n        logger.info(f\"\
+          Eval dataset: {eval_dataset_info['num_examples']} examples from {eval_dataset_info['split']}\
+          \ split\")\n        logger.info(f\"Eval dataset path: {eval_dataset_info['pvc_path']}\"\
+          )\n\n        # Find the actual JSONL file\n        candidate_paths = [\n\
+          \            eval_dataset_info['pvc_path'],\n            eval_dataset.path,\n\
+          \        ]\n\n        for candidate in candidate_paths:\n            if\
+          \ candidate and os.path.exists(candidate):\n                if os.path.isfile(candidate):\n\
+          \                    eval_jsonl_path = candidate\n                    break\n\
+          \                elif os.path.isdir(candidate):\n                    for\
+          \ f in os.listdir(candidate):\n                        if f.endswith('.jsonl')\
+          \ or f.endswith('.json'):\n                            eval_jsonl_path =\
+          \ os.path.join(candidate, f)\n                            break\n      \
+          \              if eval_jsonl_path:\n                        break\n\n  \
+          \      if eval_jsonl_path and os.path.exists(eval_jsonl_path):\n       \
+          \     logger.info(f\"Found eval JSONL for custom evaluation: {eval_jsonl_path}\"\
+          )\n\n            # Validate dataset format before creating task\n      \
+          \      try:\n                with open(eval_jsonl_path, 'r') as f:\n   \
+          \                 sample_data = []\n                    for i, line in enumerate(f):\n\
+          \                        if i >= 10:  # Only check first 10 lines for validation\n\
+          \                            break\n                        line = line.strip()\n\
+          \                        if line:\n                            sample_data.append(json.loads(line))\n\
+          \n                is_valid, valid_count, error_msg = validate_chat_format(sample_data,\
+          \ logger)\n\n                if not is_valid:\n                    logger.error(\"\
+          =\" * 60)\n                    logger.error(\"CUSTOM EVAL SKIPPED - Invalid\
+          \ dataset format!\")\n                    logger.error(\"=\" * 60)\n   \
+          \                 logger.error(f\"Error: {error_msg}\")\n              \
+          \      logger.error(\"\")\n                    logger.error(\"Expected format\
+          \ (SFT/OSFT compatible JSONL):\")\n                    logger.error(\"\"\
+          )\n                    logger.error(\"  Option 1 - With system message:\"\
+          )\n                    logger.error('    {\"messages\": [{\"role\": \"system\"\
+          , \"content\": \"...\"}, {\"role\": \"user\", \"content\": \"...\"}, {\"\
+          role\": \"assistant\", \"content\": \"...\"}]}')\n                    logger.error(\"\
+          \")\n                    logger.error(\"  Option 2 - Without system message:\"\
+          )\n                    logger.error('    {\"messages\": [{\"role\": \"user\"\
+          , \"content\": \"...\"}, {\"role\": \"assistant\", \"content\": \"...\"\
+          }]}')\n                    logger.error(\"\")\n                    logger.error(\"\
+          Requirements:\")\n                    logger.error(\"  - Each line: valid\
+          \ JSON with 'messages' array\")\n                    logger.error(\"  -\
+          \ Must have a message with role='user' (the prompt)\")\n               \
+          \     logger.error(\"  - Must have a message with role='assistant' (expected\
+          \ response)\")\n                    logger.error(\"  - System message is\
+          \ optional\")\n                    logger.error(\"=\" * 60)\n          \
+          \          # Don't create custom_task - will skip custom eval\n        \
+          \        else:\n                    logger.info(f\"Dataset format validated:\
+          \ {valid_count}/10 samples checked OK\")\n                    custom_task\
+          \ = ChatHoldoutTask(\n                        dataset_path=eval_jsonl_path,\n\
+          \                        task_name=\"custom_holdout_eval\",\n          \
+          \              max_gen_toks=custom_eval_max_tokens,\n                  \
+          \      log_prompts=log_samples,\n                        prompts_log=prompt_response_log,\n\
+          \                    )\n                    logger.info(\"Custom holdout\
+          \ evaluation task created\")\n            except json.JSONDecodeError as\
+          \ e:\n                logger.error(f\"Failed to parse eval dataset as JSONL:\
+          \ {e}\")\n                logger.error(\"Custom evaluation skipped - file\
+          \ must be valid JSONL\")\n            except Exception as e:\n         \
+          \       logger.error(f\"Error validating eval dataset: {e}\")\n        \
+          \        logger.error(\"Custom evaluation skipped\")\n        else:\n  \
+          \          logger.warning(\"Could not find eval JSONL file for custom evaluation.\
+          \ Skipping custom eval.\")\n\n    # --- 4. Input Sanitization ---\n    def\
+          \ parse_input(val, default):\n        if val is None:\n            return\
+          \ default\n        if isinstance(val, str):\n            try:\n        \
+          \        return json.loads(val)\n            except:\n                return\
+          \ val\n        return val\n\n    tasks_list = parse_input(task_names, [])\n\
+          \    m_args = parse_input(model_args, {})\n    g_kwargs = parse_input(gen_kwargs,\
+          \ {})\n    limit_val = None if limit == -1 else limit\n\n    # --- 5. Build\
+          \ task dict ---\n    # We need to build the task_dict directly to avoid\
+          \ issues with get_task_dict\n    # when mixing custom task objects and benchmark\
+          \ task names\n    task_dict = {}\n\n    # Get benchmark tasks using get_task_dict\
+          \ (for string task names)\n    if tasks_list:\n        logger.info(f\"Adding\
+          \ benchmark tasks: {tasks_list}\")\n        benchmark_task_dict = get_task_dict(tasks_list)\n\
+          \        task_dict.update(benchmark_task_dict)\n\n    # Add custom holdout\
+          \ task directly to the dict\n    if custom_task:\n        task_dict[\"custom_holdout_eval\"\
+          ] = custom_task\n        logger.info(\"Added custom holdout task to evaluation\"\
+          )\n\n    if not task_dict:\n        raise ValueError(\"No tasks to evaluate!\
+          \ Provide task_names or eval_dataset.\")\n\n    logger.info(f\"Total tasks\
+          \ to evaluate: {len(task_dict)}\")\n\n    # --- 6. Load Model ---\n    logger.info(\"\
+          Loading model with vLLM backend...\")\n    start_time = time.time()\n\n\
+          \    try:\n        vllm_model_args = {\n            \"pretrained\": final_model_path,\n\
+          \            \"trust_remote_code\": True,\n            \"gpu_memory_utilization\"\
+          : 0.8,\n            \"dtype\": \"auto\",\n        }\n        vllm_model_args.update(m_args)\n\
+          \n        model_class = get_model(\"vllm\")\n\n        # Parse batch_size\n\
+          \        if batch_size == \"auto\":\n            bs = \"auto\"\n       \
+          \ else:\n            try:\n                bs = int(batch_size)\n      \
+          \      except:\n                bs = \"auto\"\n\n        additional_config\
+          \ = {\n            \"batch_size\": bs,\n            \"device\": None,\n\
+          \        }\n\n        loaded_model = model_class.create_from_arg_obj(vllm_model_args,\
+          \ additional_config)\n        logger.info(f\"Model loaded successfully in\
+          \ {time.time() - start_time:.2f}s\")\n    except Exception as e:\n     \
+          \   logger.error(f\"Failed to load model: {e}\")\n        raise RuntimeError(f\"\
+          Model loading failed: {e}\")\n\n    # --- 7. Run Evaluation ---\n    logger.info(\"\
+          Starting evaluation...\")\n    start_time = time.time()\n\n    try:\n  \
+          \      results = evaluate(\n            lm=loaded_model,\n            task_dict=task_dict,\n\
+          \            limit=limit_val,\n            verbosity=verbosity,\n      \
+          \  )\n    except Exception as e:\n        logger.error(f\"Evaluation failed:\
+          \ {str(e)}\")\n        raise RuntimeError(f\"Fatal error in evaluation:\
+          \ {e}\")\n\n    duration = time.time() - start_time\n    logger.info(f\"\
+          Evaluation completed in {duration:.2f}s\")\n\n    # --- 8. Output Processing\
+          \ ---\n    def clean_for_json(obj):\n        if isinstance(obj, (int, float,\
+          \ str, bool, type(None))):\n            return obj\n        elif hasattr(obj,\
+          \ \"item\"):\n            return obj.item()\n        elif isinstance(obj,\
+          \ dict):\n            return {k: clean_for_json(v) for k, v in obj.items()}\n\
+          \        elif isinstance(obj, list):\n            return [clean_for_json(item)\
+          \ for item in obj]\n        return str(obj)\n\n    clean_results = clean_for_json(results)\n\
+          \n    # --- Log Evaluation Metadata ---\n    output_metrics.log_metric(\"\
+          eval_duration_seconds\", round(duration, 2))\n    output_metrics.log_metric(\"\
+          eval_tasks_count\", len(task_dict))\n\n    custom_eval_ran = custom_task\
+          \ is not None and \"custom_holdout_eval\" in str(clean_results.get(\"results\"\
+          , {}))\n    output_metrics.log_metric(\"custom_eval_enabled\", 1 if custom_eval_ran\
+          \ else 0)\n\n    try:\n        output_metrics.metadata[\"eval_benchmark_tasks\"\
+          ] = \",\".join(tasks_list)\n        output_metrics.metadata[\"eval_custom_task\"\
+          ] = \"custom_holdout_eval\" if custom_task else \"none\"\n        output_metrics.metadata[\"\
+          eval_model_path\"] = final_model_path\n        output_metrics.metadata[\"\
+          eval_batch_size\"] = str(batch_size)\n        output_metrics.metadata[\"\
+          eval_limit\"] = str(limit_val) if limit_val else \"all\"\n        if eval_dataset_info:\n\
+          \            output_metrics.metadata[\"eval_dataset_examples\"] = str(eval_dataset_info.get(\"\
+          num_examples\", \"\"))\n            output_metrics.metadata[\"eval_dataset_path\"\
+          ] = eval_dataset_info.get(\"pvc_path\", \"\")\n            output_metrics.metadata[\"\
+          eval_custom_data_used\"] = \"true\" if custom_eval_ran else \"false\"\n\
+          \    except Exception as e:\n        logger.warning(f\"Could not set metadata:\
+          \ {e}\")\n\n    # --- Log Task Metrics ---\n    if \"results\" in clean_results:\n\
+          \        for task_name, metrics in clean_results[\"results\"].items():\n\
+          \            display_name = metrics.get(\"alias\", task_name)\n\n      \
+          \      # Label custom holdout metrics distinctly\n            if task_name\
+          \ == \"custom_holdout_eval\":\n                prefix = \"holdout\"\n  \
+          \              logger.info(\"=== CUSTOM HOLDOUT EVALUATION RESULTS ===\"\
+          )\n            else:\n                prefix = display_name\n\n        \
+          \    for key, value in metrics.items():\n                if isinstance(value,\
           \ (int, float)) and key != \"alias\":\n                    safe_key = f\"\
-          {display_name}_{key}\".replace(\" \", \"_\").replace(\"/\", \"_\")\n   \
-          \                 output_metrics.log_metric(safe_key, value)\n\n    # Save\
-          \ Artifacts\n    output_results.name = \"eval_results.json\"\n    with open(output_results.path,\
-          \ \"w\") as f:\n        json.dump(clean_results, f, indent=2)\n\n    if\
-          \ log_samples and \"samples\" in clean_results:\n        output_samples.name\
-          \ = \"eval_samples.json\"\n        with open(output_samples.path, \"w\"\
-          ) as f:\n            json.dump(clean_results[\"samples\"], f, indent=2)\n\
-          \n"
+          {prefix}_{key}\".replace(\" \", \"_\").replace(\"/\", \"_\")\n         \
+          \           output_metrics.log_metric(safe_key, value)\n\n             \
+          \       if task_name == \"custom_holdout_eval\":\n                     \
+          \   logger.info(f\"  {key}: {value:.4f}\" if isinstance(value, float) else\
+          \ f\"  {key}: {value}\")\n\n        # Summary for custom eval\n        if\
+          \ custom_eval_ran and \"custom_holdout_eval\" in clean_results[\"results\"\
+          ]:\n            custom_results = clean_results[\"results\"][\"custom_holdout_eval\"\
+          ]\n            exact_match = custom_results.get(\"exact_match,none\", custom_results.get(\"\
+          exact_match\", \"N/A\"))\n            contains_match = custom_results.get(\"\
+          contains_match,none\", custom_results.get(\"contains_match\", \"N/A\"))\n\
+          \            logger.info(f\"=== HOLDOUT EXACT MATCH: {exact_match} ===\"\
+          )\n            logger.info(f\"=== HOLDOUT CONTAINS MATCH: {contains_match}\
+          \ ===\")\n            logger.info(\"This metric shows how well the model\
+          \ performs on YOUR held-out data.\")\n\n    # --- Save Artifacts ---\n \
+          \   output_results.name = \"eval_results.json\"\n    with open(output_results.path,\
+          \ \"w\") as f:\n        json.dump(clean_results, f, indent=2)\n\n    # Save\
+          \ prompt/response log for custom task\n    if log_samples and custom_task\
+          \ and len(prompt_response_log) > 0:\n        try:\n            output_samples.name\
+          \ = \"eval_samples.json\"\n            with open(output_samples.path, \"\
+          w\") as f:\n                json.dump(prompt_response_log, f, indent=2)\n\
+          \            logger.info(f\"Prompt/response log saved with {len(prompt_response_log)}\
+          \ samples\")\n        except Exception as e:\n            logger.warning(f\"\
+          Failed to save prompt/response log: {e}\")\n    elif log_samples and \"\
+          samples\" in clean_results:\n        output_samples.name = \"eval_samples.json\"\
+          \n        with open(output_samples.path, \"w\") as f:\n            json.dump(clean_results[\"\
+          samples\"], f, indent=2)\n\n"
         image: registry.access.redhat.com/ubi9/python-311:latest
         resources:
           accelerator:
@@ -1596,6 +1886,17 @@ root:
               componentInputParameter: registry_port
             shared_log_file:
               componentInputParameter: shared_log_file
+            source_namespace:
+              componentInputParameter: registry_source_namespace
+            source_pipeline_name:
+              runtimeValue:
+                constant: dist-train
+            source_pipeline_run_id:
+              runtimeValue:
+                constant: '{{$.pipeline_job_uuid}}'
+            source_pipeline_run_name:
+              runtimeValue:
+                constant: '{{$.pipeline_job_name}}'
         taskInfo:
           name: model-registry
       train-model:
@@ -1808,6 +2109,11 @@ root:
         description: Model registry server port
         isOptional: true
         parameterType: NUMBER_INTEGER
+      registry_source_namespace:
+        defaultValue: ''
+        description: Namespace where pipeline runs (enables UI link to pipeline run)
+        isOptional: true
+        parameterType: STRING
       shared_log_file:
         defaultValue: pipeline_log.txt
         description: Shared log file on PVC for tracking progress
@@ -1881,7 +2187,7 @@ root:
         parameterType: STRING
       training_lr_scheduler_kwargs:
         defaultValue: ''
-        description: (OSFT only)Extra scheduler params (key=val,...)
+        description: (OSFT only) Extra scheduler params (key=val,...)
         isOptional: true
         parameterType: STRING
       training_lr_warmup_steps:
@@ -1989,7 +2295,7 @@ platforms:
               secretKey: AWS_ACCESS_KEY_ID
             - envVar: AWS_SECRET_ACCESS_KEY
               secretKey: AWS_SECRET_ACCESS_KEY
-            optional: false
+            optional: true
             secretName: minio-secret
             secretNameParameter:
               runtimeValue:
@@ -2018,7 +2324,7 @@ platforms:
           - keyToEnv:
             - envVar: HF_TOKEN
               secretKey: HF_TOKEN
-            optional: false
+            optional: true
             secretName: hf-token
             secretNameParameter:
               runtimeValue:

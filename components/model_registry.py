@@ -8,7 +8,7 @@ from kfp import dsl
 
 @dsl.component(
     base_image="quay.io/opendatahub/odh-training-th03-cuda128-torch28-py312-rhel9@sha256:84d05c5ef9dd3c6ff8173c93dca7e2e6a1cab290f416fb2c469574f89b8e6438",
-    packages_to_install=["model-registry==0.2.10"],
+    packages_to_install=["model-registry==0.3.4"],
 )
 def model_registry(
     pvc_mount_path: str,
@@ -25,8 +25,20 @@ def model_registry(
     model_description: str = "",
     author: str = "pipeline",
     shared_log_file: str = "pipeline_log.txt",
+    # -------------------------------------------------------------------------
+    # PROVENANCE / LINEAGE FIELDS (auto-populated from KFP placeholders)
+    # -------------------------------------------------------------------------
+    source_pipeline_name: str = "",
+    # ^ Name of the KFP pipeline that produced this model.
+    source_pipeline_run_id: str = "",
+    # ^ Unique ID of the pipeline run.
+    source_pipeline_run_name: str = "",
+    # ^ Display name/job name of the pipeline run.
+    source_namespace: str = "",
+    # ^ Namespace where pipeline runs. Used for provenance link in UI.
+    #   If empty, auto-detected from pod's namespace.
 ) -> str:
-    """Register model to Kubeflow Model Registry.
+    """Register model to Kubeflow Model Registry with full provenance tracking.
 
     Uses the upstream model artifact (input_model) produced by training,
     or falls back to PVC path if no artifact is provided.
@@ -36,6 +48,10 @@ def model_registry(
         input_metrics: Training metrics.
         eval_metrics: Evaluation metrics from lm-eval.
         eval_results: Full evaluation results JSON artifact.
+        source_pipeline_name: Name of the source KFP pipeline.
+        source_pipeline_run_id: Unique ID of the pipeline run.
+        source_pipeline_run_name: Display name of the pipeline run.
+        source_namespace: Namespace where pipeline runs (auto-detected if empty).
     """
     import os
     from model_registry import ModelRegistry
@@ -89,6 +105,32 @@ def model_registry(
         version_metadata = {}
         eval_summary = {}
         try:
+            # -------------------------------------------------------------------------
+            # PROVENANCE (logged here, passed as direct params to register_model)
+            # -------------------------------------------------------------------------
+            # Auto-detect namespace if not provided
+            resolved_namespace = source_namespace
+            if not resolved_namespace:
+                try:
+                    with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace", "r") as f:
+                        resolved_namespace = f.read().strip()
+                        print(f"\n  Auto-detected namespace: {resolved_namespace}")
+                except Exception:
+                    resolved_namespace = ""
+            
+            print("\n  Provenance:")
+            print(f"    - Source Kind: kfp")
+            print(f"    - Source Class: pipelinerun")
+            if source_pipeline_name:
+                version_metadata["pipeline_name"] = source_pipeline_name
+                print(f"    - Pipeline Name: {source_pipeline_name}")
+            if source_pipeline_run_id:
+                print(f"    - Run ID: {source_pipeline_run_id}")
+            if source_pipeline_run_name:
+                print(f"    - Run Name: {source_pipeline_run_name} (used for UI link text)")
+            if resolved_namespace:
+                print(f"    - Namespace: {resolved_namespace}")
+
             # Add base model info
             if base_model_name:
                 version_metadata["base_model"] = base_model_name
@@ -144,6 +186,15 @@ def model_registry(
                 author=author,
                 owner=author,
                 description=model_description or f"Registered via pipeline - {model_version}",
+                # Provenance (direct params in SDK 0.3.4+)
+                # Note: model_source_name is the RUN NAME (displayed as link text in UI)
+                # The pipeline name is stored in metadata as model_source_run_name
+                model_source_kind="kfp",
+                model_source_class="pipelinerun",
+                model_source_name=source_pipeline_run_name or source_pipeline_name or None,
+                model_source_id=source_pipeline_run_id or None,
+                model_source_group=resolved_namespace or None,
+                # Additional metadata (training/eval metrics, run name, etc.)
                 metadata=version_metadata or None,
             )
             model_id = registered_model.id

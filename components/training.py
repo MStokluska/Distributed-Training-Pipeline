@@ -85,93 +85,7 @@ def train_model(
     # KFP TaskConfig passthrough for volumes/env/resources, etc.
     kubernetes_config: dsl.TaskConfig = None,
 ) -> str:
-    """Perform model training (inline) using PVC workspace and TrainingHub runtime.
-
-    Args:
-        pvc_path: Root of the workspace PVC for this run.
-        dataset: Input dataset artifact (preferred). If not present, this component
-            will attempt to load from a remote path specified in dataset.metadata.
-            - metadata["artifact_path"]: remote dataset path (e.g., s3://..., https://..., or HF repo id)
-            - metadata["pvc_dir"]: pre-staged PVC directory to use if present
-        training_base_model: HuggingFace model ID to fine-tune (e.g., "Qwen/Qwen2.5-1.5B-Instruct").
-
-        training_algorithm: Training algorithm ("OSFT" | "SFT"). OSFT adds continual learning support.
-        training_effective_batch_size: Per-step batch size. Guidance:
-            - 1 GPU: 16–32
-            - 2 GPUs: 32–64
-            - 4 GPUs: 64–128
-        training_max_tokens_per_gpu: Token budget per GPU for memory mgmt.
-        training_max_seq_len: Max sequence length (typical 2048–8192).
-        training_learning_rate: Learning rate (typ. 1e-6 to 1e-4; 5e-6 is a good OSFT default).
-        training_backend: Trainer backend variant (e.g., "mini-trainer").
-        training_target_patterns: Comma-separated target modules/patterns (algorithm-specific).
-        training_seed: Random seed for reproducibility.
-        training_use_liger: Enable Liger kernel optimizations (image must include kernels).
-        training_use_processed_dataset: Whether dataset is already processed.
-        training_unmask_messages: Whether to unmask chat messages if applicable.
-        training_lr_scheduler: LR scheduler ("cosine" | "linear" | "constant").
-        training_lr_warmup_steps: LR warmup steps (0 for none).
-        training_save_samples: Number of samples to save during SFT (optional).
-        training_accelerate_full_state_at_epoch: Whether to save full Accelerate state at each epoch (optional).
-        training_lr_scheduler_kwargs: Comma-delimited key=value string for scheduler kwargs
-            (e.g., "num_cycles=1,num_warmup_steps=100").
-        training_checkpoint_at_epoch: Save a checkpoint at each epoch boundary.
-        training_save_final_checkpoint: Save the final model checkpoint.
-        training_num_epochs: Number of epochs (1 = quick test; 3–5 = better convergence).
-        training_data_output_dir: Optional secondary output directory on PVC.
-
-        training_envs: Comma-separated env overrides ("KEY=VAL,KEY=VAL").
-        training_resource_cpu_per_worker: CPU limit/request per worker (e.g., "8").
-        training_resource_gpu_per_worker: GPUs per worker (e.g., 1). Typically equals num procs.
-        training_resource_memory_per_worker: Memory per worker (e.g., "32Gi").
-        training_resource_num_procs_per_worker: Processes (ranks) per worker (usually equals GPUs/worker).
-        training_resource_num_workers: Total worker pods (1 = single-node; 2+ = multi-node).
-        training_metadata_labels: Comma-separated labels ("k=v,k=v") for pod template.
-        training_metadata_annotations: Comma-separated annotations ("k=v,k=v") for pod template.
-        kubernetes_config: TaskConfig passthrough (volumes, mounts, env, resources, tolerations, etc.).
-
-        output_model: Final model artifact copied to artifact store and PVC,
-            with metadata set for downstream consumers:
-            - model_name: the fine-tuned base model id
-            - artifact_path: output_model.path (artifact store path)
-            - pvc_model_dir: "<pvc_path>/final_model" (PVC directory path)
-        output_metrics: Logged numeric metrics (floats), e.g.:
-            - num_epochs, effective_batch_size, learning_rate, max_seq_len
-            - max_tokens_per_gpu, unfreeze_rank_ratio (0 for SFT)
-
-    OSFT func_args schema (passed to the trainer):
-
-        model_path: Path to the model to fine-tune
-
-        data_path: Path to the training data
-
-        ckpt_output_dir: Directory to save checkpoints
-
-        backend: Backend implementation to use (default: "instructlab-training")
-
-        num_epochs: Number of training epochs
-
-        effective_batch_size: Effective batch size for training
-
-        learning_rate: Learning rate for training
-
-        max_seq_len: Maximum sequence length
-
-        max_tokens_per_gpu: Maximum tokens per GPU in a mini-batch (hard-cap for memory to avoid OOMs). Used to automatically calculate mini-batch size and gradient accumulation to maintain the desired effective_batch_size while staying within memory limits.
-
-        data_output_dir: Directory to save processed data
-
-        save_samples: Number of samples to save after training (0 disables saving based on sample count)
-
-        warmup_steps: Number of warmup steps
-
-        accelerate_full_state_at_epoch: Whether to save full state at epoch for automatic checkpoint resumption
-
-        checkpoint_at_epoch: Whether to checkpoint at each epoch
-
-    Returns:
-        Status message string.
-    """
+    """Train model using TrainingHub (OSFT/SFT). Outputs model artifact and metrics."""
     import os, sys, json, time, logging, re, subprocess, shutil
     from typing import Dict, List, Tuple, Optional as _Optional
 
@@ -762,17 +676,75 @@ def train_model(
         raise
 
     # ------------------------------
-    # Metrics (basic hyperparameters)
+    # Metrics (hyperparameters + training metrics from trainer output)
     # ------------------------------
-    def _log_basic_metrics() -> None:
+    def _get_training_metrics(search_root: str, algo: str = "osft") -> Dict[str, float]:
+        """Find and parse TrainingHub metrics file (OSFT/SFT)."""
+        import math
+        # File patterns: OSFT=training_metrics_0.jsonl, SFT=training_params_and_metrics_global0.jsonl
+        patterns = ["training_metrics_0.jsonl", "training_params_and_metrics_global0.jsonl"]
+        if algo.lower() == "sft":
+            patterns = patterns[::-1]
+        
+        mfile = None
+        for root, _, files in os.walk(search_root):
+            for p in patterns:
+                if p in files:
+                    mfile = os.path.join(root, p)
+                    break
+            if mfile:
+                break
+        
+        if not mfile or not os.path.exists(mfile):
+            logger.warning(f"No metrics file in {search_root}")
+            return {}
+        
+        logger.info(f"Reading metrics from: {mfile}")
+        metrics, losses = {}, []
+        try:
+            with open(mfile) as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            e = json.loads(line)
+                            # Map fields: loss/avg_loss->loss, lr->learning_rate, gradnorm/grad_norm->grad_norm
+                            for src, dst in [('loss','loss'),('avg_loss','loss'),('lr','learning_rate'),
+                                             ('grad_norm','grad_norm'),('gradnorm','grad_norm'),
+                                             ('val_loss','eval_loss'),('epoch','epoch'),('step','step')]:
+                                if src in e and dst not in metrics:
+                                    try: metrics[dst] = float(e[src])
+                                    except: pass
+                            lv = e.get('loss') or e.get('avg_loss')
+                            if lv: 
+                                try: losses.append(float(lv))
+                                except: pass
+                        except: pass
+            if losses:
+                metrics['final_loss'] = losses[-1]
+                metrics['min_loss'] = min(losses)
+                metrics['final_perplexity'] = math.exp(min(losses[-1], 10))
+            logger.info(f"Extracted {len(metrics)} metrics")
+        except Exception as ex:
+            logger.warning(f"Failed to parse metrics: {ex}")
+        return metrics
+
+    def _log_all_metrics() -> None:
+        """Log hyperparameters and training metrics."""
+        # 1. Log hyperparameters
         output_metrics.log_metric("num_epochs", float(params.get("num_epochs") or 1))
         output_metrics.log_metric("effective_batch_size", float(params.get("effective_batch_size") or 128))
         output_metrics.log_metric("learning_rate", float(params.get("learning_rate") or 5e-6))
         output_metrics.log_metric("max_seq_len", float(params.get("max_seq_len") or 8192))
         output_metrics.log_metric("max_tokens_per_gpu", float(params.get("max_tokens_per_gpu") or 0))
         output_metrics.log_metric("unfreeze_rank_ratio", float(params.get("unfreeze_rank_ratio") or 0))
+        
+        # 2. Find and parse training metrics file
+        algo = (training_algorithm or "osft").strip().lower()
+        training_metrics = _get_training_metrics(checkpoints_dir, algo)
+        for k, v in training_metrics.items():
+            output_metrics.log_metric(f"training_{k}", v)
 
-    _log_basic_metrics()
+    _log_all_metrics()
 
     # ------------------------------
     # Export most recent checkpoint as model artifact (artifact store) and PVC
