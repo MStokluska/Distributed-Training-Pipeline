@@ -35,11 +35,14 @@ from components.model_registry import model_registry
 PVC_SIZE = "10Gi"
 PVC_STORAGE_CLASS = "nfs-csi"
 PVC_ACCESS_MODES = ["ReadWriteMany"]
+
+# Pipeline identity (used in decorator AND provenance tracking)
+PIPELINE_NAME = "dist-train"
 # =============================================================================
 
 
 @dsl.pipeline(
-    name="dist-train",
+    name=PIPELINE_NAME,
     description="Skeleton pipeline with 4 stages sharing a PVC: dataset download, training, lm-eval, model registry",
     pipeline_config=dsl.PipelineConfig(
         workspace=dsl.WorkspaceConfig(
@@ -268,6 +271,10 @@ def distributed_training_pipeline(
     registry_model_version: str = "1.0.0",
     # ^ Version string for the model.
 
+    registry_source_namespace: str = "",
+    # ^ Namespace where the pipeline runs (e.g., "mstoklus", "pipeline-poc").
+    #   Used for provenance - enables click-through link from Model Registry to pipeline run in UI.
+
     # =========================================================================
     # SHARED PARAMETERS
     # =========================================================================
@@ -333,6 +340,7 @@ def distributed_training_pipeline(
         registry_model_format_version: Model format version
         registry_model_name: Name for the registered model
         registry_model_version: Version string for the model
+        registry_source_namespace: Namespace where pipeline runs (enables UI link to pipeline run)
         shared_log_file: Shared log file on PVC for tracking progress
     """
 
@@ -350,14 +358,17 @@ def distributed_training_pipeline(
     dataset_download_task.set_caching_options(False)
     kfp.kubernetes.set_image_pull_policy(dataset_download_task, "IfNotPresent")
 
-    # Mount S3/MinIO credentials from Kubernetes secret
+    # Mount S3/MinIO credentials from Kubernetes secret (OPTIONAL)
+    # Only required if using s3:// URIs for dataset_uri
+    # For hf://, https://, pvc://, or /path URIs - no secret needed!
     kfp.kubernetes.use_secret_as_env(
         dataset_download_task,
         secret_name='minio-secret',
         secret_key_to_env={
             'AWS_ACCESS_KEY_ID': 'AWS_ACCESS_KEY_ID',
             'AWS_SECRET_ACCESS_KEY': 'AWS_SECRET_ACCESS_KEY',
-        }
+        },
+        optional=True,  # Pod will start even if secret doesn't exist
     )
 
     # =========================================================================
@@ -456,13 +467,14 @@ def distributed_training_pipeline(
     eval_task.set_accelerator_type("nvidia.com/gpu")
     eval_task.set_accelerator_limit(1)
 
-    # Inject HuggingFace token for model access during evaluation
-    if training_env_hf_token:
-        kfp.kubernetes.use_secret_as_env(
-            task=eval_task,
-            secret_name="hf-token",
-            secret_key_to_env={"HF_TOKEN": "HF_TOKEN"},
-        )
+    # Inject HuggingFace token for model access during evaluation (OPTIONAL)
+    # Only required for gated models (Llama, Mistral, etc.)
+    kfp.kubernetes.use_secret_as_env(
+        task=eval_task,
+        secret_name="hf-token",
+        secret_key_to_env={"HF_TOKEN": "HF_TOKEN"},
+        optional=True,  # Pod will start even if secret doesn't exist
+    )
 
     # =========================================================================
     # Stage 4: Model Registry (waits for both training AND evaluation)
@@ -487,6 +499,11 @@ def distributed_training_pipeline(
         model_description=registry_model_description,
         author=registry_model_author,
         shared_log_file=shared_log_file,
+        # Provenance / Lineage (auto-populated from KFP placeholders)
+        source_pipeline_name=PIPELINE_NAME,  # Shared constant with @dsl.pipeline decorator
+        source_pipeline_run_id=dsl.PIPELINE_JOB_ID_PLACEHOLDER,
+        source_pipeline_run_name=dsl.PIPELINE_JOB_NAME_PLACEHOLDER,
+        source_namespace=registry_source_namespace,
     )
     model_registry_task.set_caching_options(False)
     # Dependency on eval_task is automatic via eval_metrics/eval_results artifacts
