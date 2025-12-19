@@ -82,6 +82,8 @@ def train_model(
     # ------------------------------
     training_save_samples: Optional[int] = None,
     training_accelerate_full_state_at_epoch: Optional[bool] = None,
+    # FSDP sharding strategy: FULL_SHARD, HYBRID_SHARD, NO_SHARD
+    training_fsdp_sharding_strategy: Optional[str] = None,
     # KFP TaskConfig passthrough for volumes/env/resources, etc.
     kubernetes_config: dsl.TaskConfig = None,
 ) -> str:
@@ -595,14 +597,85 @@ def train_model(
                     base["save_samples"] = int(training_save_samples)
                 if training_accelerate_full_state_at_epoch is not None:
                     base["accelerate_full_state_at_epoch"] = bool(training_accelerate_full_state_at_epoch)
+                # SFT also supports lr_scheduler and warmup_steps
+                if training_lr_scheduler:
+                    base["lr_scheduler"] = training_lr_scheduler
+                if training_use_liger is not None:
+                    base["use_liger"] = bool(training_use_liger)
+            # FSDP sharding strategy - stored as string, will be converted to FSDPOptions
+            # in the custom training function below
+            if training_fsdp_sharding_strategy:
+                base["fsdp_sharding_strategy"] = training_fsdp_sharding_strategy.upper().strip()
+                logger.info(f"Requested FSDP sharding strategy: {training_fsdp_sharding_strategy}")
             return base
 
         params = _build_params()
+        
+        # Determine which algorithm to use
+        algo_str = (training_algorithm or "").strip().upper()
+        use_sft = (algo_str == "SFT")
+        algo_value = TrainingHubAlgorithms.SFT if use_sft else TrainingHubAlgorithms.OSFT
 
         # Algorithm selection: include OSFT-only param when applicable
-        algo_value = TrainingHubAlgorithms.OSFT if (training_algorithm or "").strip().upper() != "SFT" else TrainingHubAlgorithms.SFT
         if algo_value == TrainingHubAlgorithms.OSFT:
             params["unfreeze_rank_ratio"] = float(training_unfreeze_rank_ratio)
+        
+        # Store algorithm name in params for the training function
+        params["_algorithm"] = "sft" if use_sft else "osft"
+        
+        # =======================================================================
+        # Custom training function - handles FSDPOptions conversion
+        # This function is extracted via inspect.getsource() and embedded in the
+        # training pod, similar to how sft.ipynb works with SDK v1
+        # SDK passes func_args as a SINGLE DICT argument (not **kwargs)
+        # =======================================================================
+        def _training_func_with_fsdp(parameters):
+            """Training function that converts fsdp_sharding_strategy to FSDPOptions.
+            
+            This function is passed to TrainingHubTrainer and extracted via
+            inspect.getsource(). It runs inside the training pod and can create
+            Python objects like FSDPOptions that can't be serialized through params.
+            
+            Args:
+                parameters: Dict of training parameters (passed by SDK as single arg)
+            """
+            import os
+            
+            # Extract algorithm and fsdp_sharding_strategy from parameters
+            args = dict(parameters or {})
+            algorithm = args.pop("_algorithm", "sft")
+            fsdp_sharding_strategy = args.pop("fsdp_sharding_strategy", None)
+            
+            # Import the appropriate training function
+            if algorithm == "sft":
+                from training_hub import sft as train_algo
+            else:
+                from training_hub import osft as train_algo
+            
+            # Convert fsdp_sharding_strategy string to FSDPOptions object
+            if fsdp_sharding_strategy:
+                try:
+                    from instructlab.training.config import FSDPOptions, ShardingStrategies
+                    strategy_map = {
+                        "FULL_SHARD": ShardingStrategies.FULL_SHARD,
+                        "HYBRID_SHARD": ShardingStrategies.HYBRID_SHARD,
+                        "NO_SHARD": ShardingStrategies.NO_SHARD,
+                    }
+                    if fsdp_sharding_strategy.upper() in strategy_map:
+                        args["fsdp_options"] = FSDPOptions(
+                            sharding_strategy=strategy_map[fsdp_sharding_strategy.upper()]
+                        )
+                        print(f"[PY] Using FSDP sharding strategy: {fsdp_sharding_strategy}", flush=True)
+                    else:
+                        print(f"[PY] Warning: Unknown FSDP strategy '{fsdp_sharding_strategy}'", flush=True)
+                except ImportError as e:
+                    print(f"[PY] Warning: Could not import FSDPOptions: {e}", flush=True)
+            
+            # Log and run training
+            print(f"[PY] Launching {algorithm.upper()} training...", flush=True)
+            result = train_algo(**args)
+            print(f"[PY] {algorithm.upper()} training complete.", flush=True)
+            return result
 
         # Build volumes and mounts (from passthrough only); do not inject env via pod overrides
         # Cluster policy forbids env in podTemplateOverrides; use trainer.env for container env
@@ -636,8 +709,11 @@ def train_model(
 
         job_name = client.train(
             trainer=TrainingHubTrainer(
-                algorithm=TrainingHubAlgorithms.OSFT if (training_algorithm or "").strip().upper() != "SFT" else TrainingHubAlgorithms.SFT,
+                # Use custom function to handle FSDPOptions conversion
+                func=_training_func_with_fsdp,
                 func_args=params,
+                # Algorithm still needed for progression tracking
+                algorithm=algo_value,
                 packages_to_install=[],
                 # Pass environment variables via Trainer spec (allowed by backend/webhook)
                 env=dict(merged_env),
