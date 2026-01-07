@@ -51,52 +51,52 @@ def sft_pipeline(
     # =========================================================================
     # KEY PARAMETERS (Required/Important) - Sorted by step
     # =========================================================================
-    key1_data_uri: str,
-    key1_data_split: float = 0.9,
-    key2_train_batch: int = 128,
-    key2_train_epochs: int = 1,
-    key2_train_gpu: int = 1,
-    key2_train_model: str = "Qwen/Qwen2.5-1.5B-Instruct",
-    key2_train_tokens: int = 10000,
-    key2_train_workers: int = 4,
-    key3_eval_tasks: list = ["arc_easy"],
-    key4_reg_address: str = "",
-    key4_reg_author: str = "pipeline",
-    key4_reg_name: str = "sft-model",
-    key4_reg_version: str = "1.0.0",
+    phase_01_dataset_man_data_uri: str,
+    phase_01_dataset_man_data_split: float = 0.9,
+    phase_02_train_man_batch: int = 128,
+    phase_02_train_man_epochs: int = 1,
+    phase_02_train_man_gpu: int = 1,
+    phase_02_train_man_model: str = "Qwen/Qwen2.5-1.5B-Instruct",
+    phase_02_train_man_tokens: int = 10000,
+    phase_02_train_man_workers: int = 4,
+    phase_03_eval_man_tasks: list = ["arc_easy"],
+    phase_04_registry_man_address: str = "",
+    phase_04_registry_man_author: str = "pipeline",
+    phase_04_registry_man_name: str = "sft-model",
+    phase_04_registry_man_version: str = "1.0.0",
     # =========================================================================
     # OPTIONAL PARAMETERS - Sorted by step
     # =========================================================================
-    opt1_data_hf_token: str = "",
-    opt1_data_subset: int = 0,
-    opt2_train_annotations: str = "",
-    opt2_train_cpu: str = "4",
-    opt2_train_env_vars: str = "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,NCCL_DEBUG=INFO,INSTRUCTLAB_NCCL_TIMEOUT_MS=600000",
-    opt2_train_hf_token: str = "",
-    opt2_train_labels: str = "",
-    opt2_train_learning_rate: float = 5e-6,
-    opt2_train_lr_warmup: int = 0,
-    opt2_train_lr_scheduler: str = "cosine",
-    opt2_train_max_seq_len: int = 8192,
-    opt2_train_memory: str = "64Gi",
-    opt2_train_num_procs: str = "auto",
-    opt2_train_pull_secret: str = "",
-    opt2_train_save_epoch: bool = True,
-    opt2_train_save_full_state: bool = False,
-    opt2_train_fsdp_sharding: str = "FULL_SHARD",
-    opt2_train_save_samples: int = 0,
-    opt2_train_seed: int = 42,
-    opt2_train_use_liger: bool = False,
-    opt3_eval_batch: str = "auto",
-    opt3_eval_gen_kwargs: dict = {},
-    opt3_eval_limit: int = -1,
-    opt3_eval_log_samples: bool = True,
-    opt3_eval_model_args: dict = {},
-    opt3_eval_verbosity: str = "INFO",
-    opt4_reg_description: str = "",
-    opt4_reg_format_name: str = "pytorch",
-    opt4_reg_format_version: str = "1.0",
-    opt4_reg_port: int = 8080,
+    phase_01_dataset_opt_hf_token: str = "",
+    phase_01_dataset_opt_subset: int = 0,
+    phase_02_train_opt_annotations: str = "",
+    phase_02_train_opt_cpu: str = "4",
+    phase_02_train_opt_env_vars: str = "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,NCCL_DEBUG=INFO,INSTRUCTLAB_NCCL_TIMEOUT_MS=600000",
+    phase_02_train_opt_hf_token: str = "",
+    phase_02_train_opt_labels: str = "",
+    phase_02_train_opt_learning_rate: float = 5e-6,
+    phase_02_train_opt_lr_warmup: int = 0,
+    phase_02_train_opt_lr_scheduler: str = "cosine",
+    phase_02_train_opt_max_seq_len: int = 8192,
+    phase_02_train_opt_memory: str = "64Gi",
+    phase_02_train_opt_num_procs: str = "auto",
+    phase_02_train_opt_pull_secret: str = "",
+    phase_02_train_opt_save_epoch: bool = True,
+    phase_02_train_opt_save_full_state: bool = False,
+    phase_02_train_opt_fsdp_sharding: str = "FULL_SHARD",
+    phase_02_train_opt_save_samples: int = 0,
+    phase_02_train_opt_seed: int = 42,
+    phase_02_train_opt_use_liger: bool = False,
+    phase_03_eval_opt_batch: str = "auto",
+    phase_03_eval_opt_gen_kwargs: dict = {},
+    phase_03_eval_opt_limit: int = -1,
+    phase_03_eval_opt_log_samples: bool = True,
+    phase_03_eval_opt_model_args: dict = {},
+    phase_03_eval_opt_verbosity: str = "INFO",
+    phase_04_registry_opt_description: str = "",
+    phase_04_registry_opt_format_name: str = "pytorch",
+    phase_04_registry_opt_format_version: str = "1.0",
+    phase_04_registry_opt_port: int = 8080,
 ):
     """SFT Training Pipeline - Standard supervised fine-tuning with instructlab-training.
 
@@ -105,62 +105,61 @@ def sft_pipeline(
     2) SFT Training - Fine-tunes using instructlab-training backend
     3) Evaluation - Evaluates with lm-eval harness (MMLU, GSM8K, etc.)
     4) Model Registry - Registers trained model to Kubeflow Model Registry
-
     Args:
-        key1_data_uri: [REQUIRED] Dataset location (hf://dataset, s3://bucket/path, https://url, pvc://path)
-        key1_data_split: Train/eval split ratio (0.9 = 90% train, 10% eval)
-        key2_train_batch: Effective batch size (samples per optimizer step). Start with 128
-        key2_train_epochs: Number of training epochs. 1 is often sufficient
-        key2_train_gpu: GPUs per worker. KEEP AT 1 to avoid /dev/shm issues
-        key2_train_model: Base model (HuggingFace ID or path)
-        key2_train_tokens: Max tokens per GPU (memory cap). 10000 for SFT
-        key2_train_workers: Number of training pods. 4 pods × 1 GPU = 4 total GPUs
-        key3_eval_tasks: lm-eval tasks (arc_easy, mmlu, gsm8k, hellaswag, etc.)
-        key4_reg_address: Model Registry address (empty = skip registration)
-        key4_reg_author: Author name for the registered model
-        key4_reg_name: Model name in registry
-        key4_reg_version: Semantic version (major.minor.patch)
-        opt1_data_hf_token: HuggingFace token for gated/private datasets
-        opt1_data_subset: Limit to first N examples (0 = all)
-        opt2_train_annotations: K8s annotations (key=val,...)
-        opt2_train_cpu: CPU cores per worker
-        opt2_train_env_vars: Env vars (KEY=VAL,...) with NCCL timeout, memory optimization
-        opt2_train_hf_token: HuggingFace token for gated models (Llama, Mistral)
-        opt2_train_labels: K8s labels (key=val,...)
-        opt2_train_learning_rate: Learning rate (1e-6 to 1e-4). 5e-6 recommended
-        opt2_train_lr_warmup: Warmup steps before full LR
-        opt2_train_lr_scheduler: LR schedule (cosine, linear, constant)
-        opt2_train_max_seq_len: Max sequence length in tokens
-        opt2_train_memory: RAM per worker. 64Gi matches tested config
-        opt2_train_num_procs: Processes per worker ('auto' = one per GPU)
-        opt2_train_pull_secret: K8s pull secret for private registries
-        opt2_train_save_epoch: Save checkpoint at each epoch end
-        opt2_train_save_full_state: Save full optimizer state for resumption
-        opt2_train_fsdp_sharding: FSDP strategy (FULL_SHARD, HYBRID_SHARD, NO_SHARD)
-        opt2_train_save_samples: Save every N samples (0 = disabled)
-        opt2_train_seed: Random seed for reproducibility
-        opt2_train_use_liger: Enable Liger kernel optimizations (experimental)
-        opt3_eval_batch: Eval batch size ('auto' or integer)
-        opt3_eval_gen_kwargs: Generation params dict (max_tokens, temperature)
-        opt3_eval_limit: Max samples per task (-1 = all)
-        opt3_eval_log_samples: Log individual predictions
-        opt3_eval_model_args: Model init args dict (dtype, gpu_memory_utilization)
-        opt3_eval_verbosity: Logging level (DEBUG, INFO, WARNING, ERROR)
-        opt4_reg_description: Model description
-        opt4_reg_format_name: Model format (pytorch, onnx, tensorflow)
-        opt4_reg_format_version: Model format version
-        opt4_reg_port: Model registry server port
+        phase_01_dataset_man_data_uri: [REQUIRED] Dataset location (hf://dataset, s3://bucket/path, https://url, pvc://path)
+        phase_01_dataset_man_data_split: Train/eval split ratio (0.9 = 90% train, 10% eval)
+        phase_02_train_man_batch: Effective batch size (samples per optimizer step). Start with 128
+        phase_02_train_man_epochs: Number of training epochs. 1 is often sufficient
+        phase_02_train_man_gpu: GPUs per worker. KEEP AT 1 to avoid /dev/shm issues
+        phase_02_train_man_model: Base model (HuggingFace ID or path)
+        phase_02_train_man_tokens: Max tokens per GPU (memory cap). 10000 for SFT
+        phase_02_train_man_workers: Number of training pods. 4 pods × 1 GPU = 4 total GPUs
+        phase_03_eval_man_tasks: lm-eval tasks (arc_easy, mmlu, gsm8k, hellaswag, etc.)
+        phase_04_registry_man_address: Model Registry address (empty = skip registration)
+        phase_04_registry_man_author: Author name for the registered model
+        phase_04_registry_man_name: Model name in registry
+        phase_04_registry_man_version: Semantic version (major.minor.patch)
+        phase_01_dataset_opt_hf_token: HuggingFace token for gated/private datasets
+        phase_01_dataset_opt_subset: Limit to first N examples (0 = all)
+        phase_02_train_opt_annotations: K8s annotations (key=val,...)
+        phase_02_train_opt_cpu: CPU cores per worker
+        phase_02_train_opt_env_vars: Env vars (KEY=VAL,...) with NCCL timeout and memory optimization
+        phase_02_train_opt_hf_token: HuggingFace token for gated models (Llama, Mistral)
+        phase_02_train_opt_labels: K8s labels (key=val,...)
+        phase_02_train_opt_learning_rate: Learning rate (1e-6 to 1e-4). 5e-6 recommended
+        phase_02_train_opt_lr_warmup: Warmup steps before full LR
+        phase_02_train_opt_lr_scheduler: LR schedule (cosine, linear, constant)
+        phase_02_train_opt_max_seq_len: Max sequence length in tokens
+        phase_02_train_opt_memory: RAM per worker. 64Gi matches tested config
+        phase_02_train_opt_num_procs: Processes per worker ('auto' = one per GPU)
+        phase_02_train_opt_pull_secret: K8s pull secret for private registries
+        phase_02_train_opt_save_epoch: Save checkpoint at each epoch end
+        phase_02_train_opt_save_full_state: Save full optimizer state for resumption
+        phase_02_train_opt_fsdp_sharding: FSDP strategy (FULL_SHARD, HYBRID_SHARD, NO_SHARD)
+        phase_02_train_opt_save_samples: Save every N samples (0 = disabled)
+        phase_02_train_opt_seed: Random seed for reproducibility
+        phase_02_train_opt_use_liger: Enable Liger kernel optimizations
+        phase_03_eval_opt_batch: Eval batch size ('auto' or integer)
+        phase_03_eval_opt_gen_kwargs: Generation params dict (max_tokens, temperature)
+        phase_03_eval_opt_limit: Max samples per task (-1 = all)
+        phase_03_eval_opt_log_samples: Log individual predictions
+        phase_03_eval_opt_model_args: Model init args dict (dtype, gpu_memory_utilization)
+        phase_03_eval_opt_verbosity: Logging level (DEBUG, INFO, WARNING, ERROR)
+        phase_04_registry_opt_description: Model description
+        phase_04_registry_opt_format_name: Model format (pytorch, onnx, tensorflow)
+        phase_04_registry_opt_format_version: Model format version
+        phase_04_registry_opt_port: Model registry server port
     """
 
     # =========================================================================
     # Stage 1: Dataset Download
     # =========================================================================
     dataset_download_task = dataset_download(
-        dataset_uri=key1_data_uri,
+        dataset_uri=phase_01_dataset_man_data_uri,
         pvc_mount_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
-        train_split_ratio=key1_data_split,
-        subset_count=opt1_data_subset,
-        hf_token=opt1_data_hf_token,
+        train_split_ratio=phase_01_dataset_man_data_split,
+        subset_count=phase_01_dataset_opt_subset,
+        hf_token=phase_01_dataset_opt_hf_token,
         shared_log_file="pipeline_log.txt",
     )
     dataset_download_task.set_caching_options(False)
@@ -183,44 +182,44 @@ def sft_pipeline(
         pvc_path=dsl.WORKSPACE_PATH_PLACEHOLDER,
         dataset=dataset_download_task.outputs["train_dataset"],
         # Model - SFT specific
-        training_base_model=key2_train_model,
+        training_base_model=phase_02_train_man_model,
         training_algorithm="SFT",  # Hardcoded for SFT pipeline
         training_backend="instructlab-training",  # Hardcoded for SFT
         training_unfreeze_rank_ratio=0.0,  # Not used by SFT
         # Hyperparameters
-        training_effective_batch_size=key2_train_batch,
-        training_max_tokens_per_gpu=key2_train_tokens,
-        training_max_seq_len=opt2_train_max_seq_len,
-        training_learning_rate=opt2_train_learning_rate,
+        training_effective_batch_size=phase_02_train_man_batch,
+        training_max_tokens_per_gpu=phase_02_train_man_tokens,
+        training_max_seq_len=phase_02_train_opt_max_seq_len,
+        training_learning_rate=phase_02_train_opt_learning_rate,
         training_target_patterns="",  # Not used by SFT
-        training_seed=opt2_train_seed,
-        training_num_epochs=key2_train_epochs,
-        # SFT optimizations (use_liger supported, others not)
-        training_use_liger=opt2_train_use_liger,
+        training_seed=phase_02_train_opt_seed,
+        training_num_epochs=phase_02_train_man_epochs,
+        # SFT optimizations
+        training_use_liger=phase_02_train_opt_use_liger,
         training_use_processed_dataset=False,
         training_unmask_messages=False,
         # LR scheduler
-        training_lr_scheduler=opt2_train_lr_scheduler,
-        training_lr_warmup_steps=opt2_train_lr_warmup,
+        training_lr_scheduler=phase_02_train_opt_lr_scheduler,
+        training_lr_warmup_steps=phase_02_train_opt_lr_warmup,
         training_lr_scheduler_kwargs="",
         # Saving (SFT-specific)
-        training_checkpoint_at_epoch=opt2_train_save_epoch,
+        training_checkpoint_at_epoch=phase_02_train_opt_save_epoch,
         training_save_final_checkpoint=False,  # Not used by SFT
-        training_save_samples=opt2_train_save_samples,
-        training_accelerate_full_state_at_epoch=opt2_train_save_full_state,
-        training_fsdp_sharding_strategy=opt2_train_fsdp_sharding,
+        training_save_samples=phase_02_train_opt_save_samples,
+        training_accelerate_full_state_at_epoch=phase_02_train_opt_save_full_state,
+        training_fsdp_sharding_strategy=phase_02_train_opt_fsdp_sharding,
         # Environment
-        training_hf_token=opt2_train_hf_token,
-        training_pull_secret=opt2_train_pull_secret,
-        training_envs=opt2_train_env_vars,
-        training_metadata_labels=opt2_train_labels,
-        training_metadata_annotations=opt2_train_annotations,
+        training_hf_token=phase_02_train_opt_hf_token,
+        training_pull_secret=phase_02_train_opt_pull_secret,
+        training_envs=phase_02_train_opt_env_vars,
+        training_metadata_labels=phase_02_train_opt_labels,
+        training_metadata_annotations=phase_02_train_opt_annotations,
         # Resources
-        training_resource_cpu_per_worker=opt2_train_cpu,
-        training_resource_gpu_per_worker=key2_train_gpu,
-        training_resource_memory_per_worker=opt2_train_memory,
-        training_resource_num_procs_per_worker=opt2_train_num_procs,
-        training_resource_num_workers=key2_train_workers,
+        training_resource_cpu_per_worker=phase_02_train_opt_cpu,
+        training_resource_gpu_per_worker=phase_02_train_man_gpu,
+        training_resource_memory_per_worker=phase_02_train_opt_memory,
+        training_resource_num_procs_per_worker=phase_02_train_opt_num_procs,
+        training_resource_num_workers=phase_02_train_man_workers,
     )
     training_task.set_caching_options(False)
     kfp.kubernetes.set_image_pull_policy(training_task, "IfNotPresent")
@@ -240,13 +239,13 @@ def sft_pipeline(
     eval_task = universal_llm_evaluator(
         model_artifact=training_task.outputs["output_model"],
         eval_dataset=dataset_download_task.outputs["eval_dataset"],
-        task_names=key3_eval_tasks,
-        batch_size=opt3_eval_batch,
-        limit=opt3_eval_limit,
-        log_samples=opt3_eval_log_samples,
-        verbosity=opt3_eval_verbosity,
-        model_args=opt3_eval_model_args,
-        gen_kwargs=opt3_eval_gen_kwargs,
+        task_names=phase_03_eval_man_tasks,
+        batch_size=phase_03_eval_opt_batch,
+        limit=phase_03_eval_opt_limit,
+        log_samples=phase_03_eval_opt_log_samples,
+        verbosity=phase_03_eval_opt_verbosity,
+        model_args=phase_03_eval_opt_model_args,
+        gen_kwargs=phase_03_eval_opt_gen_kwargs,
     )
     eval_task.set_caching_options(False)
     kfp.kubernetes.set_image_pull_policy(eval_task, "IfNotPresent")
@@ -271,14 +270,14 @@ def sft_pipeline(
         input_metrics=training_task.outputs["output_metrics"],
         eval_metrics=eval_task.outputs["output_metrics"],
         eval_results=eval_task.outputs["output_results"],
-        registry_address=key4_reg_address,
-        registry_port=opt4_reg_port,
-        model_name=key4_reg_name,
-        model_version=key4_reg_version,
-        model_format_name=opt4_reg_format_name,
-        model_format_version=opt4_reg_format_version,
-        model_description=opt4_reg_description,
-        author=key4_reg_author,
+        registry_address=phase_04_registry_man_address,
+        registry_port=phase_04_registry_opt_port,
+        model_name=phase_04_registry_man_name,
+        model_version=phase_04_registry_man_version,
+        model_format_name=phase_04_registry_opt_format_name,
+        model_format_version=phase_04_registry_opt_format_version,
+        model_description=phase_04_registry_opt_description,
+        author=phase_04_registry_man_author,
         shared_log_file="pipeline_log.txt",
         source_pipeline_name=PIPELINE_NAME,
         source_pipeline_run_id=dsl.PIPELINE_JOB_ID_PLACEHOLDER,
