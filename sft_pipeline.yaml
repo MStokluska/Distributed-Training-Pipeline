@@ -2,49 +2,49 @@
 # Name: sft-pipeline
 # Description: SFT pipeline: standard supervised fine-tuning using instructlab-training
 # Inputs:
-#    key1_data_split: float [Default: 0.9]
-#    key1_data_uri: str
-#    key2_train_batch: int [Default: 128.0]
-#    key2_train_epochs: int [Default: 1.0]
-#    key2_train_gpu: int [Default: 1.0]
-#    key2_train_model: str [Default: 'Qwen/Qwen2.5-1.5B-Instruct']
-#    key2_train_tokens: int [Default: 10000.0]
-#    key2_train_workers: int [Default: 4.0]
-#    key3_eval_tasks: list [Default: ['arc_easy']]
-#    key4_reg_address: str [Default: '']
-#    key4_reg_author: str [Default: 'pipeline']
-#    key4_reg_name: str [Default: 'sft-model']
-#    key4_reg_version: str [Default: '1.0.0']
-#    opt1_data_hf_token: str [Default: '']
-#    opt1_data_subset: int [Default: 0.0]
-#    opt2_train_annotations: str [Default: '']
-#    opt2_train_cpu: str [Default: '4']
-#    opt2_train_env_vars: str [Default: 'PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,NCCL_DEBUG=INFO,INSTRUCTLAB_NCCL_TIMEOUT_MS=600000']
-#    opt2_train_fsdp_sharding: str [Default: 'FULL_SHARD']
-#    opt2_train_hf_token: str [Default: '']
-#    opt2_train_labels: str [Default: '']
-#    opt2_train_learning_rate: float [Default: 5e-06]
-#    opt2_train_lr_scheduler: str [Default: 'cosine']
-#    opt2_train_lr_warmup: int [Default: 0.0]
-#    opt2_train_max_seq_len: int [Default: 8192.0]
-#    opt2_train_memory: str [Default: '64Gi']
-#    opt2_train_num_procs: str [Default: 'auto']
-#    opt2_train_pull_secret: str [Default: '']
-#    opt2_train_save_epoch: bool [Default: True]
-#    opt2_train_save_full_state: bool [Default: False]
-#    opt2_train_save_samples: int [Default: 0.0]
-#    opt2_train_seed: int [Default: 42.0]
-#    opt2_train_use_liger: bool [Default: False]
-#    opt3_eval_batch: str [Default: 'auto']
-#    opt3_eval_gen_kwargs: dict [Default: {}]
-#    opt3_eval_limit: int [Default: -1.0]
-#    opt3_eval_log_samples: bool [Default: True]
-#    opt3_eval_model_args: dict [Default: {}]
-#    opt3_eval_verbosity: str [Default: 'INFO']
-#    opt4_reg_description: str [Default: '']
-#    opt4_reg_format_name: str [Default: 'pytorch']
-#    opt4_reg_format_version: str [Default: '1.0']
-#    opt4_reg_port: int [Default: 8080.0]
+#    phase_01_dataset_man_data_split: float [Default: 0.9]
+#    phase_01_dataset_man_data_uri: str
+#    phase_01_dataset_opt_hf_token: str [Default: '']
+#    phase_01_dataset_opt_subset: int [Default: 0.0]
+#    phase_02_train_man_batch: int [Default: 128.0]
+#    phase_02_train_man_epochs: int [Default: 1.0]
+#    phase_02_train_man_gpu: int [Default: 1.0]
+#    phase_02_train_man_model: str [Default: 'Qwen/Qwen2.5-1.5B-Instruct']
+#    phase_02_train_man_tokens: int [Default: 10000.0]
+#    phase_02_train_man_workers: int [Default: 4.0]
+#    phase_02_train_opt_annotations: str [Default: '']
+#    phase_02_train_opt_cpu: str [Default: '4']
+#    phase_02_train_opt_env_vars: str [Default: 'PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,NCCL_DEBUG=INFO,INSTRUCTLAB_NCCL_TIMEOUT_MS=600000']
+#    phase_02_train_opt_fsdp_sharding: str [Default: 'FULL_SHARD']
+#    phase_02_train_opt_hf_token: str [Default: '']
+#    phase_02_train_opt_labels: str [Default: '']
+#    phase_02_train_opt_learning_rate: float [Default: 5e-06]
+#    phase_02_train_opt_lr_scheduler: str [Default: 'cosine']
+#    phase_02_train_opt_lr_warmup: int [Default: 0.0]
+#    phase_02_train_opt_max_seq_len: int [Default: 8192.0]
+#    phase_02_train_opt_memory: str [Default: '64Gi']
+#    phase_02_train_opt_num_procs: str [Default: 'auto']
+#    phase_02_train_opt_pull_secret: str [Default: '']
+#    phase_02_train_opt_save_epoch: bool [Default: True]
+#    phase_02_train_opt_save_full_state: bool [Default: False]
+#    phase_02_train_opt_save_samples: int [Default: 0.0]
+#    phase_02_train_opt_seed: int [Default: 42.0]
+#    phase_02_train_opt_use_liger: bool [Default: False]
+#    phase_03_eval_man_tasks: list [Default: ['arc_easy']]
+#    phase_03_eval_opt_batch: str [Default: 'auto']
+#    phase_03_eval_opt_gen_kwargs: dict [Default: {}]
+#    phase_03_eval_opt_limit: int [Default: -1.0]
+#    phase_03_eval_opt_log_samples: bool [Default: True]
+#    phase_03_eval_opt_model_args: dict [Default: {}]
+#    phase_03_eval_opt_verbosity: str [Default: 'INFO']
+#    phase_04_registry_man_address: str [Default: '']
+#    phase_04_registry_man_author: str [Default: 'pipeline']
+#    phase_04_registry_man_name: str [Default: 'sft-model']
+#    phase_04_registry_man_version: str [Default: '1.0.0']
+#    phase_04_registry_opt_description: str [Default: '']
+#    phase_04_registry_opt_format_name: str [Default: 'pytorch']
+#    phase_04_registry_opt_format_version: str [Default: '1.0']
+#    phase_04_registry_opt_port: int [Default: 8080.0]
 components:
   comp-dataset-download:
     executorLabel: exec-dataset-download
@@ -1870,9 +1870,9 @@ root:
         inputs:
           parameters:
             dataset_uri:
-              componentInputParameter: key1_data_uri
+              componentInputParameter: phase_01_dataset_man_data_uri
             hf_token:
-              componentInputParameter: opt1_data_hf_token
+              componentInputParameter: phase_01_dataset_opt_hf_token
             pvc_mount_path:
               runtimeValue:
                 constant: '{{$.workspace_path}}'
@@ -1880,9 +1880,9 @@ root:
               runtimeValue:
                 constant: pipeline_log.txt
             subset_count:
-              componentInputParameter: opt1_data_subset
+              componentInputParameter: phase_01_dataset_opt_subset
             train_split_ratio:
-              componentInputParameter: key1_data_split
+              componentInputParameter: phase_01_dataset_man_data_split
         taskInfo:
           name: dataset-download
       model-registry:
@@ -1912,24 +1912,24 @@ root:
                 producerTask: train-model
           parameters:
             author:
-              componentInputParameter: key4_reg_author
+              componentInputParameter: phase_04_registry_man_author
             model_description:
-              componentInputParameter: opt4_reg_description
+              componentInputParameter: phase_04_registry_opt_description
             model_format_name:
-              componentInputParameter: opt4_reg_format_name
+              componentInputParameter: phase_04_registry_opt_format_name
             model_format_version:
-              componentInputParameter: opt4_reg_format_version
+              componentInputParameter: phase_04_registry_opt_format_version
             model_name:
-              componentInputParameter: key4_reg_name
+              componentInputParameter: phase_04_registry_man_name
             model_version:
-              componentInputParameter: key4_reg_version
+              componentInputParameter: phase_04_registry_man_version
             pvc_mount_path:
               runtimeValue:
                 constant: '{{$.workspace_path}}'
             registry_address:
-              componentInputParameter: key4_reg_address
+              componentInputParameter: phase_04_registry_man_address
             registry_port:
-              componentInputParameter: opt4_reg_port
+              componentInputParameter: phase_04_registry_opt_port
             shared_log_file:
               runtimeValue:
                 constant: pipeline_log.txt
@@ -1964,7 +1964,7 @@ root:
               runtimeValue:
                 constant: '{{$.workspace_path}}'
             training_accelerate_full_state_at_epoch:
-              componentInputParameter: opt2_train_save_full_state
+              componentInputParameter: phase_02_train_opt_save_full_state
             training_algorithm:
               runtimeValue:
                 constant: SFT
@@ -1972,55 +1972,55 @@ root:
               runtimeValue:
                 constant: instructlab-training
             training_base_model:
-              componentInputParameter: key2_train_model
+              componentInputParameter: phase_02_train_man_model
             training_checkpoint_at_epoch:
-              componentInputParameter: opt2_train_save_epoch
+              componentInputParameter: phase_02_train_opt_save_epoch
             training_effective_batch_size:
-              componentInputParameter: key2_train_batch
+              componentInputParameter: phase_02_train_man_batch
             training_envs:
-              componentInputParameter: opt2_train_env_vars
+              componentInputParameter: phase_02_train_opt_env_vars
             training_fsdp_sharding_strategy:
-              componentInputParameter: opt2_train_fsdp_sharding
+              componentInputParameter: phase_02_train_opt_fsdp_sharding
             training_hf_token:
-              componentInputParameter: opt2_train_hf_token
+              componentInputParameter: phase_02_train_opt_hf_token
             training_learning_rate:
-              componentInputParameter: opt2_train_learning_rate
+              componentInputParameter: phase_02_train_opt_learning_rate
             training_lr_scheduler:
-              componentInputParameter: opt2_train_lr_scheduler
+              componentInputParameter: phase_02_train_opt_lr_scheduler
             training_lr_scheduler_kwargs:
               runtimeValue:
                 constant: ''
             training_lr_warmup_steps:
-              componentInputParameter: opt2_train_lr_warmup
+              componentInputParameter: phase_02_train_opt_lr_warmup
             training_max_seq_len:
-              componentInputParameter: opt2_train_max_seq_len
+              componentInputParameter: phase_02_train_opt_max_seq_len
             training_max_tokens_per_gpu:
-              componentInputParameter: key2_train_tokens
+              componentInputParameter: phase_02_train_man_tokens
             training_metadata_annotations:
-              componentInputParameter: opt2_train_annotations
+              componentInputParameter: phase_02_train_opt_annotations
             training_metadata_labels:
-              componentInputParameter: opt2_train_labels
+              componentInputParameter: phase_02_train_opt_labels
             training_num_epochs:
-              componentInputParameter: key2_train_epochs
+              componentInputParameter: phase_02_train_man_epochs
             training_pull_secret:
-              componentInputParameter: opt2_train_pull_secret
+              componentInputParameter: phase_02_train_opt_pull_secret
             training_resource_cpu_per_worker:
-              componentInputParameter: opt2_train_cpu
+              componentInputParameter: phase_02_train_opt_cpu
             training_resource_gpu_per_worker:
-              componentInputParameter: key2_train_gpu
+              componentInputParameter: phase_02_train_man_gpu
             training_resource_memory_per_worker:
-              componentInputParameter: opt2_train_memory
+              componentInputParameter: phase_02_train_opt_memory
             training_resource_num_procs_per_worker:
-              componentInputParameter: opt2_train_num_procs
+              componentInputParameter: phase_02_train_opt_num_procs
             training_resource_num_workers:
-              componentInputParameter: key2_train_workers
+              componentInputParameter: phase_02_train_man_workers
             training_save_final_checkpoint:
               runtimeValue:
                 constant: false
             training_save_samples:
-              componentInputParameter: opt2_train_save_samples
+              componentInputParameter: phase_02_train_opt_save_samples
             training_seed:
-              componentInputParameter: opt2_train_seed
+              componentInputParameter: phase_02_train_opt_seed
             training_target_patterns:
               runtimeValue:
                 constant: ''
@@ -2031,7 +2031,7 @@ root:
               runtimeValue:
                 constant: false
             training_use_liger:
-              componentInputParameter: opt2_train_use_liger
+              componentInputParameter: phase_02_train_opt_use_liger
             training_use_processed_dataset:
               runtimeValue:
                 constant: false
@@ -2056,235 +2056,235 @@ root:
                 producerTask: train-model
           parameters:
             batch_size:
-              componentInputParameter: opt3_eval_batch
+              componentInputParameter: phase_03_eval_opt_batch
             gen_kwargs:
-              componentInputParameter: opt3_eval_gen_kwargs
+              componentInputParameter: phase_03_eval_opt_gen_kwargs
             limit:
-              componentInputParameter: opt3_eval_limit
+              componentInputParameter: phase_03_eval_opt_limit
             log_samples:
-              componentInputParameter: opt3_eval_log_samples
+              componentInputParameter: phase_03_eval_opt_log_samples
             model_args:
-              componentInputParameter: opt3_eval_model_args
+              componentInputParameter: phase_03_eval_opt_model_args
             task_names:
-              componentInputParameter: key3_eval_tasks
+              componentInputParameter: phase_03_eval_man_tasks
             verbosity:
-              componentInputParameter: opt3_eval_verbosity
+              componentInputParameter: phase_03_eval_opt_verbosity
         taskInfo:
           name: universal-llm-evaluator
   inputDefinitions:
     parameters:
-      key1_data_split:
+      phase_01_dataset_man_data_split:
         defaultValue: 0.9
         description: Train/eval split ratio (0.9 = 90% train, 10% eval)
         isOptional: true
         parameterType: NUMBER_DOUBLE
-      key1_data_uri:
+      phase_01_dataset_man_data_uri:
         description: '[REQUIRED] Dataset location (hf://dataset, s3://bucket/path,
           https://url, pvc://path)'
         parameterType: STRING
-      key2_train_batch:
+      phase_01_dataset_opt_hf_token:
+        defaultValue: ''
+        description: HuggingFace token for gated/private datasets
+        isOptional: true
+        parameterType: STRING
+      phase_01_dataset_opt_subset:
+        defaultValue: 0.0
+        description: Limit to first N examples (0 = all)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      phase_02_train_man_batch:
         defaultValue: 128.0
         description: Effective batch size (samples per optimizer step). Start with
           128
         isOptional: true
         parameterType: NUMBER_INTEGER
-      key2_train_epochs:
+      phase_02_train_man_epochs:
         defaultValue: 1.0
         description: Number of training epochs. 1 is often sufficient
         isOptional: true
         parameterType: NUMBER_INTEGER
-      key2_train_gpu:
+      phase_02_train_man_gpu:
         defaultValue: 1.0
         description: GPUs per worker. KEEP AT 1 to avoid /dev/shm issues
         isOptional: true
         parameterType: NUMBER_INTEGER
-      key2_train_model:
+      phase_02_train_man_model:
         defaultValue: Qwen/Qwen2.5-1.5B-Instruct
         description: Base model (HuggingFace ID or path)
         isOptional: true
         parameterType: STRING
-      key2_train_tokens:
+      phase_02_train_man_tokens:
         defaultValue: 10000.0
         description: Max tokens per GPU (memory cap). 10000 for SFT
         isOptional: true
         parameterType: NUMBER_INTEGER
-      key2_train_workers:
+      phase_02_train_man_workers:
         defaultValue: 4.0
         description: "Number of training pods. 4 pods \xD7 1 GPU = 4 total GPUs"
         isOptional: true
         parameterType: NUMBER_INTEGER
-      key3_eval_tasks:
+      phase_02_train_opt_annotations:
+        defaultValue: ''
+        description: K8s annotations (key=val,...)
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_cpu:
+        defaultValue: '4'
+        description: CPU cores per worker
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_env_vars:
+        defaultValue: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,NCCL_DEBUG=INFO,INSTRUCTLAB_NCCL_TIMEOUT_MS=600000
+        description: Env vars (KEY=VAL,...) with NCCL timeout and memory optimization
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_fsdp_sharding:
+        defaultValue: FULL_SHARD
+        description: FSDP strategy (FULL_SHARD, HYBRID_SHARD, NO_SHARD)
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_hf_token:
+        defaultValue: ''
+        description: HuggingFace token for gated models (Llama, Mistral)
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_labels:
+        defaultValue: ''
+        description: K8s labels (key=val,...)
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_learning_rate:
+        defaultValue: 5.0e-06
+        description: Learning rate (1e-6 to 1e-4). 5e-6 recommended
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      phase_02_train_opt_lr_scheduler:
+        defaultValue: cosine
+        description: LR schedule (cosine, linear, constant)
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_lr_warmup:
+        defaultValue: 0.0
+        description: Warmup steps before full LR
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      phase_02_train_opt_max_seq_len:
+        defaultValue: 8192.0
+        description: Max sequence length in tokens
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      phase_02_train_opt_memory:
+        defaultValue: 64Gi
+        description: RAM per worker. 64Gi matches tested config
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_num_procs:
+        defaultValue: auto
+        description: Processes per worker ('auto' = one per GPU)
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_pull_secret:
+        defaultValue: ''
+        description: K8s pull secret for private registries
+        isOptional: true
+        parameterType: STRING
+      phase_02_train_opt_save_epoch:
+        defaultValue: true
+        description: Save checkpoint at each epoch end
+        isOptional: true
+        parameterType: BOOLEAN
+      phase_02_train_opt_save_full_state:
+        defaultValue: false
+        description: Save full optimizer state for resumption
+        isOptional: true
+        parameterType: BOOLEAN
+      phase_02_train_opt_save_samples:
+        defaultValue: 0.0
+        description: Save every N samples (0 = disabled)
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      phase_02_train_opt_seed:
+        defaultValue: 42.0
+        description: Random seed for reproducibility
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      phase_02_train_opt_use_liger:
+        defaultValue: false
+        description: Enable Liger kernel optimizations
+        isOptional: true
+        parameterType: BOOLEAN
+      phase_03_eval_man_tasks:
         defaultValue:
         - arc_easy
         description: lm-eval tasks (arc_easy, mmlu, gsm8k, hellaswag, etc.)
         isOptional: true
         parameterType: LIST
-      key4_reg_address:
-        defaultValue: ''
-        description: Model Registry address (empty = skip registration)
-        isOptional: true
-        parameterType: STRING
-      key4_reg_author:
-        defaultValue: pipeline
-        description: Author name for the registered model
-        isOptional: true
-        parameterType: STRING
-      key4_reg_name:
-        defaultValue: sft-model
-        description: Model name in registry
-        isOptional: true
-        parameterType: STRING
-      key4_reg_version:
-        defaultValue: 1.0.0
-        description: Semantic version (major.minor.patch)
-        isOptional: true
-        parameterType: STRING
-      opt1_data_hf_token:
-        defaultValue: ''
-        description: HuggingFace token for gated/private datasets
-        isOptional: true
-        parameterType: STRING
-      opt1_data_subset:
-        defaultValue: 0.0
-        description: Limit to first N examples (0 = all)
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      opt2_train_annotations:
-        defaultValue: ''
-        description: K8s annotations (key=val,...)
-        isOptional: true
-        parameterType: STRING
-      opt2_train_cpu:
-        defaultValue: '4'
-        description: CPU cores per worker
-        isOptional: true
-        parameterType: STRING
-      opt2_train_env_vars:
-        defaultValue: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,NCCL_DEBUG=INFO,INSTRUCTLAB_NCCL_TIMEOUT_MS=600000
-        description: Env vars (KEY=VAL,...) with NCCL timeout, memory optimization
-        isOptional: true
-        parameterType: STRING
-      opt2_train_fsdp_sharding:
-        defaultValue: FULL_SHARD
-        description: FSDP strategy (FULL_SHARD, HYBRID_SHARD, NO_SHARD)
-        isOptional: true
-        parameterType: STRING
-      opt2_train_hf_token:
-        defaultValue: ''
-        description: HuggingFace token for gated models (Llama, Mistral)
-        isOptional: true
-        parameterType: STRING
-      opt2_train_labels:
-        defaultValue: ''
-        description: K8s labels (key=val,...)
-        isOptional: true
-        parameterType: STRING
-      opt2_train_learning_rate:
-        defaultValue: 5.0e-06
-        description: Learning rate (1e-6 to 1e-4). 5e-6 recommended
-        isOptional: true
-        parameterType: NUMBER_DOUBLE
-      opt2_train_lr_scheduler:
-        defaultValue: cosine
-        description: LR schedule (cosine, linear, constant)
-        isOptional: true
-        parameterType: STRING
-      opt2_train_lr_warmup:
-        defaultValue: 0.0
-        description: Warmup steps before full LR
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      opt2_train_max_seq_len:
-        defaultValue: 8192.0
-        description: Max sequence length in tokens
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      opt2_train_memory:
-        defaultValue: 64Gi
-        description: RAM per worker. 64Gi matches tested config
-        isOptional: true
-        parameterType: STRING
-      opt2_train_num_procs:
-        defaultValue: auto
-        description: Processes per worker ('auto' = one per GPU)
-        isOptional: true
-        parameterType: STRING
-      opt2_train_pull_secret:
-        defaultValue: ''
-        description: K8s pull secret for private registries
-        isOptional: true
-        parameterType: STRING
-      opt2_train_save_epoch:
-        defaultValue: true
-        description: Save checkpoint at each epoch end
-        isOptional: true
-        parameterType: BOOLEAN
-      opt2_train_save_full_state:
-        defaultValue: false
-        description: Save full optimizer state for resumption
-        isOptional: true
-        parameterType: BOOLEAN
-      opt2_train_save_samples:
-        defaultValue: 0.0
-        description: Save every N samples (0 = disabled)
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      opt2_train_seed:
-        defaultValue: 42.0
-        description: Random seed for reproducibility
-        isOptional: true
-        parameterType: NUMBER_INTEGER
-      opt2_train_use_liger:
-        defaultValue: false
-        description: Enable Liger kernel optimizations (experimental)
-        isOptional: true
-        parameterType: BOOLEAN
-      opt3_eval_batch:
+      phase_03_eval_opt_batch:
         defaultValue: auto
         description: Eval batch size ('auto' or integer)
         isOptional: true
         parameterType: STRING
-      opt3_eval_gen_kwargs:
+      phase_03_eval_opt_gen_kwargs:
         defaultValue: {}
         description: Generation params dict (max_tokens, temperature)
         isOptional: true
         parameterType: STRUCT
-      opt3_eval_limit:
+      phase_03_eval_opt_limit:
         defaultValue: -1.0
         description: Max samples per task (-1 = all)
         isOptional: true
         parameterType: NUMBER_INTEGER
-      opt3_eval_log_samples:
+      phase_03_eval_opt_log_samples:
         defaultValue: true
         description: Log individual predictions
         isOptional: true
         parameterType: BOOLEAN
-      opt3_eval_model_args:
+      phase_03_eval_opt_model_args:
         defaultValue: {}
         description: Model init args dict (dtype, gpu_memory_utilization)
         isOptional: true
         parameterType: STRUCT
-      opt3_eval_verbosity:
+      phase_03_eval_opt_verbosity:
         defaultValue: INFO
         description: Logging level (DEBUG, INFO, WARNING, ERROR)
         isOptional: true
         parameterType: STRING
-      opt4_reg_description:
+      phase_04_registry_man_address:
+        defaultValue: ''
+        description: Model Registry address (empty = skip registration)
+        isOptional: true
+        parameterType: STRING
+      phase_04_registry_man_author:
+        defaultValue: pipeline
+        description: Author name for the registered model
+        isOptional: true
+        parameterType: STRING
+      phase_04_registry_man_name:
+        defaultValue: sft-model
+        description: Model name in registry
+        isOptional: true
+        parameterType: STRING
+      phase_04_registry_man_version:
+        defaultValue: 1.0.0
+        description: Semantic version (major.minor.patch)
+        isOptional: true
+        parameterType: STRING
+      phase_04_registry_opt_description:
         defaultValue: ''
         description: Model description
         isOptional: true
         parameterType: STRING
-      opt4_reg_format_name:
+      phase_04_registry_opt_format_name:
         defaultValue: pytorch
         description: Model format (pytorch, onnx, tensorflow)
         isOptional: true
         parameterType: STRING
-      opt4_reg_format_version:
+      phase_04_registry_opt_format_version:
         defaultValue: '1.0'
         description: Model format version
         isOptional: true
         parameterType: STRING
-      opt4_reg_port:
+      phase_04_registry_opt_port:
         defaultValue: 8080.0
         description: Model registry server port
         isOptional: true
