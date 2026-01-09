@@ -69,6 +69,7 @@ def train_model(
     # OSFT-only params (see ai-innovation/training_hub/src/training_hub/algorithms/osft.py)
     # ------------------------------
     training_unfreeze_rank_ratio: float = 0.25,
+    training_osft_memory_efficient_init: bool = True,
     training_target_patterns: str = "",
     training_seed: Optional[int] = None,
     training_use_liger: Optional[bool] = None,
@@ -577,6 +578,7 @@ def train_model(
             algo = (training_algorithm or "").strip().upper()
             if algo == "OSFT":
                 base["unfreeze_rank_ratio"] = float(training_unfreeze_rank_ratio)
+                base["osft_memory_efficient_init"] = bool(training_osft_memory_efficient_init)
                 base["target_patterns"] = parsed_target_patterns or []
                 if training_seed is not None:
                     base["seed"] = int(training_seed)
